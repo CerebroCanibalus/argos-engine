@@ -1,0 +1,28 @@
+{
+  "query": "rust programming",
+  "number_of_results": 2,
+  "answers": [],
+  "corrections": [],
+  "infoboxes": [],
+  "results": [
+    {
+      "url": "https://www.rust-lang.org/",
+      "title": "Rust is a language empowering everyone to build reliable and efficient software",
+      "content": "Rust is a language empowering everyone to build reliable and efficient software. It combines low-level control of C with high-level safety and ergonomics.",
+      "engine": "google",
+      "score": 5.0,
+      "template": "default.html",
+      "publishedDate": "2026-01-15T00:00:00+00:00",
+      "parsed_url": ["https://", "www.rust-lang.org", "/"],
+      "img_src": null
+    },
+    {
+      "url": "https://doc.rust-lang.org/book/",
+      "title": "The Rust Programming Language - The Rust Book",
+      "content": "This is the long-form fixture snippet used to prove the token budget enforcement path end to end without any network access. The parser must accept the payload, walk every result object, and cut each snippet down to the configured character budget before it ever reaches an MCP client, so that agents consuming this tool never pay for boilerplate, navigation chrome, sidebar text, cookie banners, newsletter modals, or any other page furniture that a metasearch engine happens to echo back inside the content field of its JSON API response. Anything longer than three hundred characters in this field must be truncated precisely at the budget, and the unit tests assert the exact resulting length so a regression in the truncation logic cannot silently start leaking unbounded payloads into the tool results consumed by language models during long research sessions where every single token counts against the context window of the agent that is orchestrating the investigation.",
+      "engine": "duckduckgo",
+      "score": 4.2
+    }
+  ],
+  "suggestions": ["rust lang", "rustc", "crates.io"]
+}

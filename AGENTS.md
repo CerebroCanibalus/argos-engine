@@ -26,11 +26,29 @@ Memoria viva del proyecto (flujo universal de fases: 0 inicialización → 1 fun
 - SearXNG: `docker compose -f searxng/docker-compose.yml up -d` → JSON API en `127.0.0.1:8080`. `searxng/settings.yml` habilita `search.formats: [html, json]` (sin esto el cliente recibe HTML y falla con hint); el limiter queda desactivado (por defecto lo está salvo `server.limiter: true` + Valkey).
 - Calidad antes de commit: `check.bat` → `build.bat`.
 
-## Arquitectura (estado M1)
+## Arquitectura (estado M1 — refactor 2026-09-23)
 
-- `src/main.rs`: servidor `#[flojo_mcp(name = "argos-engine", version = ...)]` + tools `status` y `search`. Tipos de salida con derives `Serialize, Deserialize, JsonSchema`. **Los derives expanden rutas absolutas `::serde` / `::schemars` → `serde` (v1) y `schemars` (v0.8, la misma que flojo) DEBEN ser dependencias directas** en `Cargo.toml`; importar los traits vía re-exports de `flojo_mcp` (`flojo_mcp::serde`, `flojo_mcp::schemars`). Errores si se omiten: `E0463 can't find crate for serde`, `E0433 cannot find schemars`.
-- `src/searxng.rs`: cliente `GET /search?q=&format=json&page=&safesearch=`; env `ARGOS_SEARXNG_URL` (default `http://127.0.0.1:8080`); timeouts: 15 s request / 2 s ping. Snippets truncados con `truncate_string` (prelude de Flojo; también hay `truncate_json`, `json_bytes`, `estimate_tokens` → herramientas de eficiencia de tokens).
-- Dependencias mínimas: `flojo-mcp` (git), `tokio`, `reqwest` (rustls, sin defaults).
+```
+src/
+  main.rs        wiring: #[flojo_mcp] + flojo_run_stdio + tests FlojoTester (nada de lógica)
+  config.rs      Config::from_env (ARGOS_SEARXNG_URL, timeouts) — todo env() aquí
+  error.rs       enum ArgosError (InvalidQuery/Unreachable/Http/Decode/Client) →
+                 From<ArgosError> for ToolError con .with_data(hint) — thiserror
+  types.rs       SearchResult, Status (contratos públicos con derives)
+  limits.rs      presupuestos de TOKENS: TITLE_MAX=200, SNIPPET_MAX=300, clamps limit/page
+  providers/
+    mod.rs       #[async_trait] trait SearchProvider { search(), health() } — M3 añade adapters sin tocar tools
+    searxng.rs   SearxNgProvider: cliente reqwest compartido vía OnceLock (sin arranque frío),
+                 timeouts por-request desde Config, parse_results() puro (fixtures, sin red)
+  tools/
+    mod.rs + status.rs + search.rs   handlers finos: validan → delegan → normalizan
+tests/fixtures/searxng_search.json   contrato JSON real (campos extra ignorados), include_str! en tests
+```
+
+- **Los derives expanden rutas absolutas `::serde` / `::schemars` → `serde` (v1) y `schemars` (v0.8, la de flojo) DEBEN ser dependencias directas** en `Cargo.toml`; importar los traits vía re-exports de `flojo_mcp` (`flojo_mcp::serde`, `flojo_mcp::schemars`). Si faltan: `E0463 can't find crate for serde`, `E0433 cannot find schemars`.
+- SearXNG: `GET /search?q=&format=json&page=&safesearch=`; ping 2 s / search 15 s **por request** (desde `Config`); truncado según `limits.rs` con `truncate_string` de Flojo — **semántica: corta en `max_chars` de CONTENIDO y añade `...` encima** (tope real = max+3; ver `limits::SNIPPET_MAX_CHARS`). También hay `truncate_json`, `json_bytes`, `estimate_tokens` → eficiencia de tokens.
+- Dependencias: `flojo-mcp` (git), `tokio`, `serde`, `schemars`, `thiserror`, `reqwest` (rustls, sin defaults).
+- Tests sin red: FlojoTester (tools) + fixtures JSON (parsing, truncado, límites, mapeo de errores).
 - Roadmap: **M2** tool `research` (fan-out multi-query, dedup, progreso/cancelación, digest compacto); **M3** extracción de contenido (`libreadability`/`trafilatura` → markdown, sin XPath) y providers cloud opcionales.
 
 ## Config del cliente (opencode.jsonc)

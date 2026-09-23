@@ -48,6 +48,7 @@ dependencies = [
  "reqwest",
  "schemars 0.8.22",
  "serde",
+ "thiserror",
  "tokio",
 ]
 

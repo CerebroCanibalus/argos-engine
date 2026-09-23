@@ -15,6 +15,7 @@ flojo-mcp = { git = "https://github.com/CerebroCanibalus/FlojoMCP" }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 schemars = "0.8"
+thiserror = "2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 [profile.release]
