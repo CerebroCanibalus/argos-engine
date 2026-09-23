@@ -37,6 +37,9 @@ src/
                  From<ArgosError> for ToolError con .with_data(hint) — thiserror
   types.rs       SearchResult, Status (contratos públicos con derives)
   limits.rs      presupuestos de TOKENS: TITLE_MAX=200, SNIPPET_MAX=300, clamps limit/page
+  stack.rs       ciclo de vida WSL2 on-demand: ensure_up() al ver Down (connection refused) en search,
+                 note_usage() arma watchdog único → terminate() tras idle (ARGOS_IDLE_STOP_SECS,
+                 default300 s,0=off); win_to_wsl() puro (ruta D:\a\b → /mnt/d/a/b, testeado)
   providers/
     mod.rs       #[async_trait] trait SearchProvider { search(), health() } — M3 añade adapters sin tocar tools
     searxng.rs   SearxNgProvider: cliente reqwest compartido vía OnceLock (sin arranque frío),

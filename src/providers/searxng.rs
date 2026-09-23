@@ -91,9 +91,17 @@ impl SearchProvider for SearxNgProvider {
             .timeout(self.config.request_timeout)
             .send()
             .await
-            .map_err(|ex| ArgosError::Unreachable {
-                base: self.config.searxng_url.clone(),
-                cause: ex.to_string(),
+            .map_err(|ex| {
+                if ex.is_connect() {
+                    ArgosError::Down {
+                        base: self.config.searxng_url.clone(),
+                    }
+                } else {
+                    ArgosError::Unreachable {
+                        base: self.config.searxng_url.clone(),
+                        cause: ex.to_string(),
+                    }
+                }
             })?;
 
         if !response.status().is_success() {

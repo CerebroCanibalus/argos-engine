@@ -65,7 +65,18 @@ Or any MCP client (Claude Desktop, Cursor, Inspector…): command = the `argos-e
 | `status` | – | `{ name, version, searxng_url, searxng_reachable }` |
 | `search` | `query`, `limit?` (1-50, default 10), `page?` | `[{ url, title, snippet, engine }]` |
 
-Configuration: env `ARGOS_SEARXNG_URL` (default `http://127.0.0.1:8080`).
+Configuration (all optional):
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `ARGOS_SEARXNG_URL` | `http://127.0.0.1:8080` | Instance base URL |
+| `ARGOS_AUTO_START` | `1` | Boot the WSL2 stack on demand when down |
+| `ARGOS_IDLE_STOP_SECS` | `300` | Terminate the stack after this idle time (`0` = never) |
+| `ARGOS_BOOT_TIMEOUT_SECS` | `60` | Budget for a cold boot before returning "still starting" |
+| `ARGOS_WSL_DISTRO` | `Ubuntu` | WSL distro hosting the stack |
+| `ARGOS_STACK_SCRIPT` | auto (exe-relative) | Path to `searxng/wsl-setup.sh` |
+
+The stack lifecycle is **on demand**: a `search` hitting a dead endpoint boots it once (zero overhead when already running), and an armed watchdog terminates the distro after `ARGOS_IDLE_STOP_SECS` of inactivity — only after the MCP itself has used it. One-time provisioning (Ubuntu + Docker Engine) still needs `searxng\wsl-setup.bat` as admin.
 
 ## Comparison (researched 2026-09-23)
 

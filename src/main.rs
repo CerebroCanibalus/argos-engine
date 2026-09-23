@@ -7,6 +7,7 @@ mod config;
 mod error;
 mod limits;
 mod providers;
+mod stack;
 mod tools;
 mod types;
 
