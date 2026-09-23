@@ -1,0 +1,22 @@
+[package]
+name = "argos-engine"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "GPL-3.0-only"
+description = "Token-efficient, local-first web research MCP server in Rust, backed by your own SearXNG"
+repository = "https://github.com/CerebroCanibalus/argos-engine"
+readme = "README.md"
+keywords = ["mcp", "search", "searxng", "research", "metasearch"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+flojo-mcp = { git = "https://github.com/CerebroCanibalus/FlojoMCP" }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+schemars = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+[profile.release]
+lto = "thin"
+strip = true

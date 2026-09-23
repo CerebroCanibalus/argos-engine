@@ -1,0 +1,12 @@
+# Argos Engine - SearXNG settings (private local instance)
+use_default_settings: true
+
+server:
+  secret_key: "argos-engine-local-only-not-for-public-instances"
+  # limiter stays disabled (default): it would require a Valkey DB and
+  # would throttle rapid local research queries.
+
+search:
+  formats:
+    - html
+    - json   # required by Argos Engine's JSON API client

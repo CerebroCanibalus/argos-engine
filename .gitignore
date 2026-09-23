@@ -1,0 +1,33 @@
+# Rust
+target/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.exe
+*.pdb
+*.obj
+*.o
+
+# Logs
+*.log
+
+# OpenCode
+.opencode/
+.heren/
+
+# Temp
+tmp/
+.temp/
+
+# Local SearXNG runtime data
+searxng/searxng-data/
