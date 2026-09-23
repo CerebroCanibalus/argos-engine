@@ -30,7 +30,7 @@ Early development — **Milestone 1 (local SearXNG search)**. Not production-rea
 ## Requirements
 
 - Rust 1.85+ ([rustup](https://rustup.rs))
-- Docker (runs the local SearXNG)
+- Docker (runs the local SearXNG): **Docker Desktop** on Windows 19045+/11, any Docker Engine on Linux/macOS — **or**, on Windows builds below 19045 where Desktop refuses to install (e.g. LTSC 21H2), the bundled WSL2 fallback: one-time `searxng\wsl-setup.bat` (admin), then `searxng\wsl-up.bat` per session.
 - Windows: VS Build Tools (the `.bat` scripts set up `VsDevCmd`); plain `cargo build` works on any platform.
 
 ## Quick start
