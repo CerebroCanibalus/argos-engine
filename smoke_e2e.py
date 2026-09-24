@@ -10,11 +10,12 @@ import sys
 
 
 proc = subprocess.Popen(
-    [sys.executable if False else r"target\release\argos-engine.exe"],
+    [r"target\release\argos-engine.exe"],
     stdin=subprocess.PIPE,
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
     text=True,
+    encoding="utf-8",
 )
 
 

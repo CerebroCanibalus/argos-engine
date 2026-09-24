@@ -80,7 +80,8 @@ examples/probe.rs sonda viva de endpoints
 
 ## Config del cliente (opencode.jsonc)
 
-- Server `argos`: `"command": ["D:\\Mis Juegos\\ClaudeMCPs\\argos-engine\\target\\release\\argos-engine.exe"]` — añadir cuando el e2e verde cierre M1; retirar el server `ddgs` entonces (su cwd apunta al repo Python de referencia).
+- Server `argos`: `"command": ["D:\\Mis Juegos\\ClaudeMCPs\\argos-engine\\target\\release\\argos-engine.exe"]` (type local) — **ACTIVO desde v0.1.0** (e2e verde con3 engines).
+- El server `ddgs` se **MANTIENE** (no retirar): la regla global3 exige DDGS para investigación web de este asistente; además es el repo de referencia para sincronizar parsers. `argos` = el producto, `ddgs` = herramienta de research + referencia.
 
 ## Convenciones
 
