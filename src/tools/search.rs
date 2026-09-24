@@ -4,12 +4,11 @@ use crate::config::Config;
 use crate::error::ArgosError;
 use crate::limits::{clamp_limit, clamp_page};
 use crate::providers::SearchProvider;
-use crate::providers::searxng::SearxNgProvider;
-use crate::stack;
+use crate::providers::fanout::Fanout;
 use crate::types::SearchResult;
 
 #[tool(
-    description = "Web search through the local SearXNG instance (70+ engines, no API keys). Boots the stack on demand and stops it after idle. Returns compact ranked results: url, title, snippet, engine."
+    description = "Web search through keyless providers (DuckDuckGo + Bing by default) with parallel fanout, URL dedup and automatic failover. Compact results: url, title, snippet, engine."
 )]
 pub async fn search(
     query: String,
@@ -22,20 +21,9 @@ pub async fn search(
     }
 
     let config = Config::from_env();
-    let provider = SearxNgProvider::new(config.clone());
-    let limit = clamp_limit(limit);
-    let page = clamp_page(page);
-
-    let mut outcome = provider.search(&query, limit, page).await;
-
-    // Connection refused -> stack is down: boot on demand and retry once.
-    // Already running: no probe, no subprocess, no overhead.
-    if matches!(&outcome, Err(ArgosError::Down { .. })) && config.auto_start {
-        stack::ensure_up(&config).await?;
-        outcome = provider.search(&query, limit, page).await;
-    }
-
-    let results = outcome?;
-    stack::note_usage(&config).await;
+    let fanout = Fanout::from_config(&config);
+    let results = fanout
+        .search(&query, clamp_limit(limit), clamp_page(page))
+        .await?;
     Ok(results)
 }

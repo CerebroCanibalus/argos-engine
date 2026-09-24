@@ -1,4 +1,4 @@
-//! Local SearXNG JSON API provider (no keys, no accounts).
+//! Local SearXNG JSON API provider (optional adapter - requires the WSL2 stack).
 
 use std::sync::OnceLock;
 
@@ -11,6 +11,7 @@ use crate::config::Config;
 use crate::error::ArgosError;
 use crate::limits::{SNIPPET_MAX_CHARS, TITLE_MAX_CHARS};
 use crate::providers::SearchProvider;
+use crate::stack;
 use crate::types::SearchResult;
 
 /// One result as returned by the SearXNG JSON API.
@@ -70,6 +71,31 @@ impl SearxNgProvider {
             })
             .clone()
     }
+
+    fn send_search(&self, query: &str, page: usize) -> reqwest::RequestBuilder {
+        Self::client()
+            .get(format!("{}/search", self.config.searxng_url))
+            .query(&[
+                ("q", query.to_string()),
+                ("format", "json".to_string()),
+                ("page", page.to_string()),
+                ("safesearch", "0".to_string()),
+            ])
+            .timeout(self.config.request_timeout)
+    }
+
+    fn classify(ex: reqwest::Error, base: &str) -> ArgosError {
+        if ex.is_connect() {
+            ArgosError::Down {
+                base: base.to_string(),
+            }
+        } else {
+            ArgosError::Unreachable {
+                origin: format!("SearXNG at {base}"),
+                cause: ex.to_string(),
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -80,33 +106,25 @@ impl SearchProvider for SearxNgProvider {
         limit: usize,
         page: usize,
     ) -> Result<Vec<SearchResult>, ArgosError> {
-        let response = Self::client()
-            .get(format!("{}/search", self.config.searxng_url))
-            .query(&[
-                ("q", query.to_string()),
-                ("format", "json".to_string()),
-                ("page", page.to_string()),
-                ("safesearch", "0".to_string()),
-            ])
-            .timeout(self.config.request_timeout)
-            .send()
-            .await
-            .map_err(|ex| {
-                if ex.is_connect() {
-                    ArgosError::Down {
-                        base: self.config.searxng_url.clone(),
-                    }
-                } else {
-                    ArgosError::Unreachable {
-                        base: self.config.searxng_url.clone(),
-                        cause: ex.to_string(),
-                    }
-                }
-            })?;
+        let base = self.config.searxng_url.clone();
+
+        let response = match self.send_search(query, page).send().await {
+            Ok(response) => response,
+            Err(ex) if ex.is_connect() && self.config.auto_start => {
+                // Connection refused: boot the stack once, then retry.
+                stack::ensure_up(&self.config).await?;
+                self.send_search(query, page)
+                    .send()
+                    .await
+                    .map_err(|ex| Self::classify(ex, &base))?
+            }
+            Err(ex) => return Err(Self::classify(ex, &base)),
+        };
 
         if !response.status().is_success() {
+            let status = response.status().as_u16();
             return Err(ArgosError::Http {
-                status: response.status().as_u16(),
+                status,
                 hint: "JSON API disabled? Ensure searxng/settings.yml sets search.formats: [html, json] and restart the container.",
             });
         }
@@ -114,8 +132,16 @@ impl SearchProvider for SearxNgProvider {
         let payload = response
             .text()
             .await
-            .map_err(|ex| ArgosError::Decode(ex.to_string()))?;
-        Ok(parse_results(&payload)?.into_iter().take(limit).collect())
+            .map_err(|ex| ArgosError::Unreachable {
+                origin: format!("SearXNG at {base}"),
+                cause: ex.to_string(),
+            })?;
+        let mut results = parse_results(&payload)?;
+        results.truncate(limit);
+
+        // The stack served us: refresh the idle watchdog.
+        stack::note_usage(&self.config).await;
+        Ok(results)
     }
 
     async fn health(&self) -> bool {

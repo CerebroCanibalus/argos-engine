@@ -2,67 +2,85 @@
 
 Memoria viva del proyecto (flujo universal de fases: 0 inicialización → 1 fundamentos → 2 iteración → 3 funcionalidad → 4 maduración).
 
-## Identidad y decisiones (Fases 0-1, 2026-09-23)
+## Identidad y decisiones
 
-- **Qué es**: MCP server en Rust sobre FlojoMCP — reemplazo propio, superior y **eficiente en tokens** de los MCPs/plugins de búsqueda; research masiva estilo ChatGPT/Qwen deep research.
+- **Qué es**: MCP server en Rust sobre FlojoMCP — reemplazo propio, superior y **eficiente en tokens** de los MCPs/plugins de búsqueda; research masiva estilo ChatGPT/Qwen.
 - **Nombre**: Argos Engine. Repo: https://github.com/CerebroCanibalus/argos-engine (GPL-3.0-only, público desde el primer commit).
-- **M1 (decisión del usuario)**: **SÓLO SearXNG local** — sin API keys, sin tarjeta, sin DuckDuckGo directo, sin backends cloud. Los cloud (Serper/Tavily/Exa/Brave, verificados en Fase 0 del repo `ddgs`) quedan como adapters futuros opcionales tras un trait `SearchProvider`. **Docker es prerrequisito del M1.**
-- **Referencias**: FlojoMCP en `D:\Mis Juegos\ClaudeMCPs\FlojoMCP` (dep git `https://github.com/CerebroCanibalus/FlojoMCP`, público). El MCP Python de referencia (ddgs v9.16.0) vive en `D:\Mis Juegos\ClaudeMCPs\ddgs`.
+- **M1 FINAL (2026-09-24, decisión del usuario tras datos)**: **fanout multi-provider keyless — DuckDuckGo + Bing por defecto** (`ARGOS_PROVIDERS`), **cero VM/cero Docker/cero keys**. El requisito inicial "Sólo SearXNG" se abandonó tras medir el coste real de la VM en esta máquina (ver saga WSL). SearXNG queda como **adapter opcional** ya escrito (`providers/searxng.rs` + `stack.rs`).
+- **Referencias**: FlojoMCP en `D:\Mis Juegos\ClaudeMCPs\FlojoMCP` (dep git, público). MCP Python de referencia (ddgs v9.16.0) en `D:\Mis Juegos\ClaudeMCPs\ddgs` — parsers de motores para sincronizar fixes.
+
+## Datos de límites (medidos,2026-09-24, esta IP/residencial)
+
+- `html.duckduckgo.com`: **200 con12 resultados** usando reqwest+rustls+UA Chrome (UA de PowerShell → **403**: la UA importa). Avisos públicos:202/403 bajo automatización.
+- `www.bing.com/search`: **200**,20 bloques `b_algo` (URLs envueltas en `ck/a?u=a1<base64url>`).
+- `www.mojeek.com`: **página CAPTCHA** (2 intentos, con cookies/headers). `search.brave.com`: **429**. Ambos FUERA del set por ahora.
+- **SearXNG NO exenta**: docs oficiales dicen que es clasificado como bot y recibe CAPTCHA/bloqueo (su limiter te frena a ti). Issue: motores suspendidos24h.
+- ddgs marca `provider="bing"` en DuckDuckGo → DDG y Bing comparten índice pero son **presupuestos anti-bot independientes** (failover de endpoint).
+- **Lección**: el techo se sube con diseño (fanout paralelo + dedup + pacing + cache), no con un backend mágico.
 
 ## Anti-objetivos (los problemas del MCP Python que NO repetir)
 
-- Tools sin deadline/cancelación (`asyncio.to_thread` mudo) → aquí: timeouts en el cliente HTTP + `ctx.is_cancelled()` / `ctx.report_progress()` en el M2.
-- Errores genéricos que devoran la excepción (`"Error executing tool X"`) → `ToolError::internal/invalid_params` con mensaje accionable + `.with_data(hint)`.
-- Instancia fría por llamada, sin memoria de rate limits → usar `State()` de Flojo para caché y pacing.
-- Investigación pesada = N llamadas secuenciales del LLM → futuro tool `research` con fan-out interno (1 llamada).
-- **NDJSON siempre**: `flojo_run_stdio`. NUNCA `flojo_run_stdio_cl` con OpenCode (framing Content-Length cuelga — verificado en FlojoMCP AGENTS.md).
-- stdout reservado al protocolo; logs a stderr.
+- Tools sin deadline/cancelación → timeouts por-request + `ctx.is_cancelled()`/`report_progress()` en M2.
+- Errores genéricos que devoran la excepción → `ArgosError` tipado + `.with_data(hint)` (ver `error.rs`; `RateLimited` explica el techo).
+- Instancia fría por llamada → clientes compartidos (`OnceLock`) + caché en M2.
+- N llamadas secuenciales del LLM → futuro tool `research` (fan-out interno).
+- **NDJSON siempre**: `flojo_run_stdio`, NUNCA `flojo_run_stdio_cl` con OpenCode. stdout sólo protocolo.
 
 ## Comandos
 
-- `build.bat` (release + tests; VsDevCmd, mata `argos-engine.exe` previo), `check.bat` (`fmt --check` + `clippy -D warnings`), `test.bat`, `fmt.bat`. Salida de scripts ASCII-only, sin `chcp 65001` (regla del ecosistema Flojo).
-- Crudo: `cargo build --release`, `cargo test`, `cargo run --release`.
-- **Toolchain de esta máquina (2026-09)**: VS **2026 BuildTools (18)** MSVC 14.51.36231 + SDK 10.0.26100 — la ruta `...\Microsoft Visual Studio\2022\...` de los `.bat` de FlojoMCP **NO existe aquí** (scripts de FlojoMCP rotos en este equipo; no copiarlos literalmente). `.cargo/config.toml` fija `linker` + `LIB` al toolset 18 (patrón probado de FlojoMCP); los `.bat` de Argos hacen `call` a VsDevCmd con `if exist` + fallback a la auto-detección de cargo.
-- SearXNG: `docker compose -f searxng/docker-compose.yml up -d` → JSON API en `127.0.0.1:8080`. `searxng/settings.yml` habilita `search.formats: [html, json]` (sin esto el cliente recibe HTML y falla con hint); el limiter queda desactivado (por defecto lo está salvo `server.limiter: true` + Valkey).
-- **Infra SearXNG en ESTA máquina (2026-09-23)**: Docker Desktop **imposible** (requiere build ≥19045; el equipo es LTSC **19044** y no recibirá feature update → instalador rechazado). Vía oficial del repo: **WSL2 + docker-ce dentro de Ubuntu**. Secuencia: (1) reboot pendiente — el script de UAC ya habilitó VMP+WSL y actualizó el kernel; (2) `searxng\wsl-setup.bat` (UAC: instala distro Ubuntu + docker.io + binario docker-compose + levanta el stack y espera al JSON API); (3) arranque diario con `searxng\wsl-up.bat` (sin admin). El e2e de Argos no nota la diferencia: mismo `localhost:8080` vía localhost-forwarding de WSL2.
+- `build.bat` (release + tests; VsDevCmd VS18 con `if exist` + fallback), `check.bat` (`fmt --check` + `clippy -D warnings`), `test.bat`, `fmt.bat`. Salida ASCII-only, sin `chcp` (regla Flojo).
+- Crudo: `cargo build --release`, `cargo test`, `cargo clippy --all-targets -- -D warnings`.
+- `cargo run --example probe` — sonda viva DDG/Mojeek (diagnóstico de bloqueos).
 - Calidad antes de commit: `check.bat` → `build.bat`.
+- **El camino por defecto NO necesita Docker ni WSL.** Adapter SearXNG (opcional): `searxng\wsl-setup.bat` (una vez, admin) o `docker compose -f searxng/docker-compose.yml up -d`; diario `searxng\wsl-up.bat`.
 
-## Arquitectura (estado M1 — refactor 2026-09-23)
+## Saga WSL (cerrada como adapter opcional — contexto para no repetirla)
+
+- Docker Desktop **imposible** aquí (LTSC **19044** < requerido19045, sin feature updates). `wsl --update` del wsl in-box = **no-op** (exit0 miente); kernel arreglado con **MSI oficial** `wsl_update_x64.msi` (vía blob wslstorestorage, `aka.ms/wsl2kernel` devuelve HTML). WSL empaquetado2.7.14 **gateado por OS** (`WSL_E_OS_NOT_SUPPORTED`, pide CU — el SO lleva ~1 año sin updates; `aka.ms/store-wsl-kb-win10` → historia de updates; último CU .7727 vs actual .1288).
+- Estado: kernel in-box INSTALADO ✓, Alpine rootfs3.22.6 descargado+SHA256 ✓ (`.temp/alpine-rootfs.tar.gz`), **faltaría** `wsl --import` + adaptar `wsl-setup.sh` a apk — sólo si alguien reactiva el adapter.
+- Gotchas cmd: `wsl.exe` devuelve **-1** → NUNCA `if errorlevel1` (signed), usar `!errorlevel! neq0` con `setlocal enabledelayedexpansion`; conversión ruta `D:\a\b`→`/mnt/d/a/b` **testeada** (bug clásico: `!REST:\=/!` necesita el `!` de cierre); PATH stale: invocar `C:\Program Files\WSL\wsl.exe` por ruta absoluta.
+- `.temp/`: `wsl.msi` (WSL moderno259MB), `wsl_update_x64.msi` (kernel17MB), `alpine-rootfs.tar.gz`, `install-docker.bat` (obsoleto). Todo gitignored.
+
+## Arquitectura (M1 multi-provider)
 
 ```
 src/
-  main.rs        wiring: #[flojo_mcp] + flojo_run_stdio + tests FlojoTester (nada de lógica)
-  config.rs      Config::from_env (ARGOS_SEARXNG_URL, timeouts) — todo env() aquí
-  error.rs       enum ArgosError (InvalidQuery/Unreachable/Http/Decode/Client) →
-                 From<ArgosError> for ToolError con .with_data(hint) — thiserror
-  types.rs       SearchResult, Status (contratos públicos con derives)
+  main.rs        wiring: #[flojo_mcp] + flojo_run_stdio + tests FlojoTester
+  config.rs      Config::from_env — ARGOS_PROVIDERS, ARGOS_SEARXNG_URL, timeouts, lifecycle
+  error.rs       enum ArgosError (InvalidQuery/Down/Unreachable/RateLimited/Http/Decode/StackBoot/StackStarting)
+                 → From<ArgosError> for ToolError con .with_data(hint) — thiserror, Clone
+  types.rs       SearchResult, Status, ProviderHealth (contratos con derives)
   limits.rs      presupuestos de TOKENS: TITLE_MAX=200, SNIPPET_MAX=300, clamps limit/page
-  stack.rs       ciclo de vida WSL2 on-demand: ensure_up() al ver Down (connection refused) en search,
-                 note_usage() arma watchdog único → terminate() tras idle (ARGOS_IDLE_STOP_SECS,
-                 default300 s,0=off); win_to_wsl() puro (ruta D:\a\b → /mnt/d/a/b, testeado)
+  stack.rs       ciclo de vida WSL2 on-demand (sólo adapter SearXNG): ensure_up/note_usage/watchdog
   providers/
-    mod.rs       #[async_trait] trait SearchProvider { search(), health() } — M3 añade adapters sin tocar tools
-    searxng.rs   SearxNgProvider: cliente reqwest compartido vía OnceLock (sin arranque frío),
-                 timeouts por-request desde Config, parse_results() puro (fixtures, sin red)
-  tools/
-    mod.rs + status.rs + search.rs   handlers finos: validan → delegan → normalizan
-tests/fixtures/searxng_search.json   contrato JSON real (campos extra ignorados), include_str! en tests
+    mod.rs       trait SearchProvider {search,health} + USER_AGENT (obligatorio: UA Chrome) + keyless_client()
+                 (OnceLock con Accept/Accept-Language por defecto)
+    fanout.rs    Fanout: join_all en paralelo, merge round-robin, dedup por URL normalizada,
+                 si todo falla prefiere el error RateLimited; from_config ignora nombres desconocidos
+                 y cae a los defaults si la lista queda vacía
+    duckduckgo.rs POST html/ (params ddgs: q,b,l + s=10+(page-2)*15); parse div.result → a.result__a/
+                 a.result__snippet; filtra /y.js; unwrap //duckduckgo.com/l/?uddg= (percent-decode)
+    bing.rs      GET /search (q,pq,cc + first); parse li.b_algo → h2 a + p; filtra aclick;
+                 unwrap ck/a?u=a1<base64url> (base64 crate)
+    searxng.rs   adapter opcional JSON; auto-heal: Down + auto_start → stack::ensure_up + retry;
+                 success → stack::note_usage
+  tools/         handlers finos: status (probes por provider) y search (valida → Fanout)
+tests/fixtures/  HTML REAL: duckduckgo.html (42KB/12 resultados), bing.html (124KB/20 bloques),
+                 mojeek.html (CAPTCHA — referencia de qué NO pasar), searxng_search.json
+examples/probe.rs sonda viva de endpoints
 ```
 
-- **Los derives expanden rutas absolutas `::serde` / `::schemars` → `serde` (v1) y `schemars` (v0.8, la de flojo) DEBEN ser dependencias directas** en `Cargo.toml`; importar los traits vía re-exports de `flojo_mcp` (`flojo_mcp::serde`, `flojo_mcp::schemars`). Si faltan: `E0463 can't find crate for serde`, `E0433 cannot find schemars`.
-- SearXNG: `GET /search?q=&format=json&page=&safesearch=`; ping 2 s / search 15 s **por request** (desde `Config`); truncado según `limits.rs` con `truncate_string` de Flojo — **semántica: corta en `max_chars` de CONTENIDO y añade `...` encima** (tope real = max+3; ver `limits::SNIPPET_MAX_CHARS`). También hay `truncate_json`, `json_bytes`, `estimate_tokens` → eficiencia de tokens.
-- Dependencias: `flojo-mcp` (git), `tokio`, `serde`, `schemars`, `thiserror`, `reqwest` (rustls, sin defaults).
-- Tests sin red: FlojoTester (tools) + fixtures JSON (parsing, truncado, límites, mapeo de errores).
-- Roadmap: **M2** tool `research` (fan-out multi-query, dedup, progreso/cancelación, digest compacto); **M3** extracción de contenido (`libreadability`/`trafilatura` → markdown, sin XPath) y providers cloud opcionales.
+- **Los derives expanden rutas absolutas `::serde`/`::schemars` → `serde` (v1) y `schemars` (v0.8) DEBEN ser dependencias directas**; traits vía re-exports de flojo. Si faltan: `E0463`/`E0433`.
+- Dependencias: `flojo-mcp` (git), `tokio`, `serde`, `schemars`, `thiserror`, `reqwest` (rustls), `scraper`, `percent-encoding`, `base64`, `futures`.
+- `truncate_string(s,max)` de Flojo **corta en max de contenido y añade `...`** (tope real max+3).
+- Tests sin red: FlojoTester + fixtures HTML/JSON reales + mocks del trait (fanout: interleave, dedup, límite, preferencia de error).
 
 ## Config del cliente (opencode.jsonc)
 
-- Nuevo server `argos`: `"command": ["D:\\Mis Juegos\\ClaudeMCPs\\argos-engine\\target\\release\\argos-engine.exe"]` (type local). Añadir cuando el M1 esté verde.
-- El server `ddgs` vigente apunta al repo Python de referencia (`python -m ddgs.cli mcp` con cwd = `D:\Mis Juegos\ClaudeMCPs\ddgs`).
+- Server `argos`: `"command": ["D:\\Mis Juegos\\ClaudeMCPs\\argos-engine\\target\\release\\argos-engine.exe"]` — añadir cuando el e2e verde cierre M1; retirar el server `ddgs` entonces (su cwd apunta al repo Python de referencia).
 
 ## Convenciones
 
 - Rust edition 2024, rust-version 1.85+, `clippy -D warnings`, `cargo fmt` obligatorio.
-- Tests con `FlojoTester` (sin transporte): identidad de `status`, rechazo de query vacía, listing de tools. Nada dependiente de red en los tests de unit; los de integración con SearXNG se marcarán `#[ignore]` o vivirán aparte.
-- Inglés en README, código, mensajes de tool y commits; español en esta memoria y en las decisiones.
-- Registro de decisiones: actualizar esta memoria al cerrar cada iteración/changelog.
+- Inglés en README, código, mensajes de tool y commits; español en esta memoria.
+- Registro de decisiones: actualizar esta memoria al cerrar cada iteración.

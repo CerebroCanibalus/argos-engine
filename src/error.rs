@@ -8,7 +8,7 @@ use flojo_mcp::prelude::*;
 use flojo_mcp::serde_json::json;
 
 /// All failures that can surface from Argos Engine tools.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum ArgosError {
     /// Caller supplied an unusable query.
     #[error("invalid query: {0}")]
@@ -21,13 +21,22 @@ pub enum ArgosError {
         base: String,
     },
 
-    /// The configured SearXNG instance did not answer within the timeout.
-    #[error("SearXNG unreachable at {base}: {cause}")]
+    /// A provider did not answer within the timeout or transport failed.
+    #[error("{origin} unreachable: {cause}")]
     Unreachable {
-        /// Configured base URL.
-        base: String,
+        /// Engine name / endpoint identity.
+        origin: String,
         /// Underlying transport error.
         cause: String,
+    },
+
+    /// The provider answered with an anti-bot rate-limit status.
+    #[error("{engine} rate-limited this IP (HTTP {status})")]
+    RateLimited {
+        /// Engine that rate-limited us.
+        engine: String,
+        /// HTTP status (202/403/429 observed in the wild).
+        status: u16,
     },
 
     /// SearXNG answered with a non-200 status.
@@ -39,8 +48,8 @@ pub enum ArgosError {
         hint: &'static str,
     },
 
-    /// The payload did not match the SearXNG JSON contract.
-    #[error("unexpected SearXNG payload: {0}")]
+    /// The payload did not match the expected contract.
+    #[error("unexpected payload: {0}")]
     Decode(String),
 
     /// The on-demand stack boot failed before the budget elapsed.
@@ -72,11 +81,14 @@ impl From<ArgosError> for ToolError {
                 "hint": "Auto-start is enabled by default (ARGOS_AUTO_START=1). If the one-time provisioning is missing, run searxng\\wsl-setup.bat once as admin; afterwards searxng\\wsl-up.bat starts the stack manually.",
             })),
             ArgosError::Unreachable { .. } => tool_error.with_data(json!({
-                "hint": "Instance configured but not answering. Check ARGOS_SEARXNG_URL and the stack logs: searxng\\wsl-up.bat, then docker-compose logs.",
+                "hint": "Network problem with this provider. Providers are independent: the fanout keeps going if another one answers - check ARGOS_PROVIDERS.",
+            })),
+            ArgosError::RateLimited { .. } => tool_error.with_data(json!({
+                "hint": "This engine flagged your IP (202/403/429 are the classic anti-bot answers). Wait it out, and raise the ceiling by enabling more providers via ARGOS_PROVIDERS - the fanout spreads load across independent rate budgets.",
             })),
             ArgosError::Http { hint, .. } => tool_error.with_data(json!({ "hint": hint })),
             ArgosError::StackBoot { .. } => tool_error.with_data(json!({
-                "hint": "Run searxng\\wsl-setup.bat once as admin to provision Ubuntu + Docker Engine, or start manually with searxng\\wsl-up.bat to see the full output.",
+                "hint": "Run searxng\\wsl-setup.bat once as admin to provision the optional SearXNG stack, or start manually with searxng\\wsl-up.bat to see the full output.",
             })),
             ArgosError::StackStarting { .. } => tool_error.with_data(json!({
                 "hint": "Boot continues in the background; retry the search in a few seconds.",
@@ -114,19 +126,38 @@ mod tests {
     }
 
     #[test]
-    fn unreachable_carries_actionable_hint() {
+    fn unreachable_names_the_provider_and_mentions_failover() {
         let error: ToolError = ArgosError::Unreachable {
-            base: "http://127.0.0.1:8080".into(),
+            origin: "html.duckduckgo.com".into(),
             cause: "operation timed out".into(),
         }
         .into();
         let data = error.to_error_data();
-        assert!(data.message.contains("SearXNG unreachable"));
+        assert!(data.message.contains("html.duckduckgo.com"));
+        assert!(data.message.contains("unreachable"));
         let hint = data.data.expect("hint payload expected")["hint"]
             .as_str()
             .unwrap_or_default()
             .to_string();
-        assert!(hint.contains("ARGOS_SEARXNG_URL"));
+        assert!(hint.contains("ARGOS_PROVIDERS"));
+    }
+
+    #[test]
+    fn rate_limit_explains_the_ceiling_lever() {
+        let error: ToolError = ArgosError::RateLimited {
+            engine: "duckduckgo".into(),
+            status: 202,
+        }
+        .into();
+        let data = error.to_error_data();
+        assert!(data.message.contains("rate-limited"));
+        assert!(data.message.contains("202"));
+        let hint = data.data.expect("hint payload expected")["hint"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        assert!(hint.contains("ARGOS_PROVIDERS"));
+        assert!(hint.contains("fanout"));
     }
 
     #[test]

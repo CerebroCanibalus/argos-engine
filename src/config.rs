@@ -22,6 +22,8 @@ pub struct Config {
     pub wsl_distro: String,
     /// Path to `wsl-setup.sh` (`ARGOS_STACK_SCRIPT`), default resolved from the exe location.
     pub stack_script: PathBuf,
+    /// Enabled providers in fanout order (`ARGOS_PROVIDERS`, comma-separated).
+    pub providers: Vec<String>,
 }
 
 impl Default for Config {
@@ -35,6 +37,7 @@ impl Default for Config {
             idle_stop: Duration::from_secs(300),
             wsl_distro: "Ubuntu".into(),
             stack_script: default_stack_script(),
+            providers: vec!["duckduckgo".into(), "bing".into()],
         }
     }
 }
@@ -64,6 +67,14 @@ fn parse_secs(name: &str, default: Duration) -> Duration {
         .map_or(default, Duration::from_secs)
 }
 
+/// Split a comma-separated provider list into normalized lowercase names.
+fn parse_providers(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(|part| part.trim().to_ascii_lowercase())
+        .filter(|part| !part.is_empty())
+        .collect()
+}
+
 impl Config {
     /// Load configuration, applying environment overrides.
     pub fn from_env() -> Self {
@@ -91,6 +102,12 @@ impl Config {
         }
         config.boot_timeout = parse_secs("ARGOS_BOOT_TIMEOUT_SECS", config.boot_timeout);
         config.idle_stop = parse_secs("ARGOS_IDLE_STOP_SECS", config.idle_stop);
+        if let Ok(raw) = std::env::var("ARGOS_PROVIDERS") {
+            let providers = parse_providers(&raw);
+            if !providers.is_empty() {
+                config.providers = providers;
+            }
+        }
         config
     }
 }
@@ -110,6 +127,16 @@ mod tests {
         assert_eq!(config.idle_stop, Duration::from_secs(300));
         assert_eq!(config.wsl_distro, "Ubuntu");
         assert!(config.stack_script.to_string_lossy().contains("searxng"));
+        assert_eq!(config.providers, vec!["duckduckgo", "bing"]);
+    }
+
+    #[test]
+    fn provider_list_parsing_is_forgiving() {
+        assert_eq!(
+            parse_providers(" DuckDuckGo , BING ,,  "),
+            vec!["duckduckgo", "bing"]
+        );
+        assert!(parse_providers(" , , ").is_empty());
     }
 
     #[test]

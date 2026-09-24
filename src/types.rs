@@ -23,8 +23,19 @@ pub struct Status {
     pub name: String,
     /// Engine version
     pub version: String,
-    /// Configured SearXNG base URL
+    /// Configured SearXNG base URL (optional adapter)
     pub searxng_url: String,
-    /// Whether the local SearXNG instance answered a health probe
+    /// Whether the optional SearXNG instance answered a health probe
     pub searxng_reachable: bool,
+    /// Configured search providers and their reachability
+    pub providers: Vec<ProviderHealth>,
+}
+
+/// Reachability report for one configured provider.
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
+pub struct ProviderHealth {
+    /// Provider name (duckduckgo, bing, searxng, ...)
+    pub name: String,
+    /// Whether the provider answered the transport probe
+    pub reachable: bool,
 }
