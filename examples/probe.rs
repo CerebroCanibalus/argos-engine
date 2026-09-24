@@ -54,4 +54,67 @@ async fn main() {
         }
         Err(ex) => println!("MOJEEK transport error: {ex}"),
     }
+
+    // Bing: exact provider request - does rustls get the real results page?
+    match client
+        .get("https://www.bing.com/search")
+        .header(
+            "Cookie",
+            "_EDGE_CD=m=en-us&u=en-us; _EDGE_S=mkt=en-us&ui=en-us",
+        )
+        .form(&[
+            ("q", "rust programming language"),
+            ("pq", "rust programming language"),
+            ("cc", "en"),
+        ])
+        .send()
+        .await
+    {
+        Ok(r) => {
+            let status = r.status();
+            let final_url = r.url().to_string();
+            let body = r.text().await.unwrap_or_default();
+            let hits = body.matches("b_algo").count();
+            let challenge = body.contains("challenge") || body.contains("CAPTCHA");
+            let len = body.len();
+            println!(
+                "BING status={status} len={len} b_algo={hits} challenge={challenge} url={final_url}"
+            );
+            let head: String = body.chars().take(300).collect();
+            println!("BING head: {head}");
+        }
+        Err(ex) => println!("BING transport error: {ex}"),
+    }
+
+    // Bing with redirects DISABLED: is /search itself a302 for us?
+    let no_redirect = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("client");
+    match no_redirect
+        .get("https://www.bing.com/search")
+        .header(
+            "Cookie",
+            "_EDGE_CD=m=en-us&u=en-us; _EDGE_S=mkt=en-us&ui=en-us",
+        )
+        .form(&[
+            ("q", "rust programming language"),
+            ("pq", "rust programming language"),
+            ("cc", "en"),
+        ])
+        .send()
+        .await
+    {
+        Ok(r) => {
+            let status = r.status();
+            let version = format!("{:?}", r.version());
+            let location = r
+                .headers()
+                .get("location")
+                .map(|v| v.to_str().unwrap_or("?").to_string())
+                .unwrap_or_default();
+            println!("BING no-redirect status={status} version={version} location={location}");
+        }
+        Err(ex) => println!("BING no-redirect transport error: {ex}"),
+    }
 }

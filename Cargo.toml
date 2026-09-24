@@ -2,7 +2,7 @@
 name = "argos-engine"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.89"
 license = "GPL-3.0-only"
 description = "Token-efficient, local-first web research MCP server in Rust, backed by your own SearXNG"
 repository = "https://github.com/CerebroCanibalus/argos-engine"
@@ -20,7 +20,8 @@ scraper = "0.24"
 percent-encoding = "2"
 base64 = "0.22"
 futures = "0.3"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+primp = "2.0"
+reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] }
 
 [profile.release]
 lto = "thin"

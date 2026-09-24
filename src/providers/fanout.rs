@@ -9,6 +9,7 @@ use crate::config::Config;
 use crate::error::ArgosError;
 use crate::providers::SearchProvider;
 use crate::providers::bing::BingProvider;
+use crate::providers::brave::BraveProvider;
 use crate::providers::duckduckgo::DuckDuckGoProvider;
 use crate::providers::searxng::SearxNgProvider;
 use crate::types::{ProviderHealth, SearchResult};
@@ -39,6 +40,9 @@ impl Fanout {
                 "bing" => {
                     providers.push((name.clone(), Box::new(BingProvider::new(config.clone()))))
                 }
+                "brave" => {
+                    providers.push((name.clone(), Box::new(BraveProvider::new(config.clone()))))
+                }
                 "searxng" => {
                     providers.push((name.clone(), Box::new(SearxNgProvider::new(config.clone()))))
                 }
@@ -51,6 +55,7 @@ impl Fanout {
                 Box::new(DuckDuckGoProvider::new(config.clone())),
             ));
             providers.push(("bing".into(), Box::new(BingProvider::new(config.clone()))));
+            providers.push(("brave".into(), Box::new(BraveProvider::new(config.clone()))));
         }
         Self { providers }
     }
@@ -122,12 +127,12 @@ impl SearchProvider for Fanout {
         let depth = per_provider.iter().map(Vec::len).max().unwrap_or(0);
         'merge: for rank in 0..depth {
             for results in &per_provider {
-                if let Some(result) = results.get(rank) {
-                    if seen.insert(normalize_url(&result.url)) {
-                        merged.push(result.clone());
-                        if merged.len() >= limit {
-                            break 'merge;
-                        }
+                if let Some(result) = results.get(rank)
+                    && seen.insert(normalize_url(&result.url))
+                {
+                    merged.push(result.clone());
+                    if merged.len() >= limit {
+                        break 'merge;
                     }
                 }
             }

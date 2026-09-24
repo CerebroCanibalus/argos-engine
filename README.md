@@ -8,7 +8,8 @@
 
 Search MCPs force a bad trade: scrape fragile engines yourself, rent an API key, or run a container farm — and either way the agent pays for it in tokens and timeouts.
 
-- **Keyless by default**: DuckDuckGo + Bing html endpoints queried directly from Rust. No accounts, no cards, no Docker, no WSL.
+- **Keyless by default**: DuckDuckGo, Bing and Brave html endpoints queried directly from Rust. No accounts, no cards, no Docker, no WSL.
+- **Browser impersonation**: the HTTP layer ([primp](https://github.com/deedy5/primp), same crate ddgs uses) masquerades as Chrome153/Windows — measured difference: without it Bing serves a `302` to its homepage and Brave returns `429`; with it all three engines answer `200`.
 - **Fanout with failover**: all providers queried in parallel, results merged round-robin and deduplicated by URL. When one engine rate-limits your IP (202/403/429 happen — see below), **the others still answer**: research degrades, it doesn't die.
 - **Tokens are a feature**: compact results, server-side truncation budgets (`src/limits.rs`), dedup before the agent ever sees duplicates.
 - **Honest, typed errors**: `rate-limited`, `unreachable`, `still starting` — each with an actionable hint, never a generic `Error executing tool` ghost.
@@ -21,19 +22,20 @@ Early development — **Milestone 1: keyless multi-provider search**. Not produc
 
 | Feature | Status |
 |---|---|
-| `search` via keyless fanout (DuckDuckGo + Bing), dedup + failover | ✅ |
+| `search` via keyless fanout (DuckDuckGo + Bing + Brave), dedup + failover | ✅ |
+| Browser impersonation (primp / Chrome153) — Bing & Brave pass | ✅ |
 | `status` with per-provider reachability probes | ✅ |
 | Typed errors with hints (`rate_limited`, `unreachable`, ...) | ✅ |
 | Real-markup fixture tests (captured HTML from live engines) | ✅ |
 | Optional SearXNG adapter + on-demand WSL2 stack lifecycle | ✅ (opt-in via `ARGOS_PROVIDERS`) |
-| More keyless providers (Mojeek/Brave measured but IP-blocked here) | 📋 M1.1 |
+| More keyless providers (Mojeek still CAPTCHA from this IP) | 📋 M1.1 |
 | `research` tool: multi-query fan-out, progress + cancellation, compact digest | 📋 M2 |
 | Content extraction (readability → markdown, no XPath) | 📋 M3 |
 | Optional cloud providers (Serper/Tavily/Exa) behind `SearchProvider` | 📋 M3+ |
 
 ## Requirements
 
-- Rust 1.85+ ([rustup](https://rustup.rs))
+- Rust 1.89+ ([rustup](https://rustup.rs)) — primp's floor
 - Windows: VS Build Tools (the `.bat` scripts set up `VsDevCmd`); plain `cargo build` works on any platform.
 - **Nothing else** for the default path. Docker/WSL2 only if you opt into the SearXNG adapter.
 
@@ -76,7 +78,7 @@ set ARGOS_PROVIDERS=duckduckgo,bing,searxng
 
 | Env var | Default | Meaning |
 |---|---|---|
-| `ARGOS_PROVIDERS` | `duckduckgo,bing` | Enabled providers, fanout order (adds `searxng` to opt in) |
+| `ARGOS_PROVIDERS` | `duckduckgo,bing,brave` | Enabled providers, fanout order (adds `searxng` to opt in) |
 | `ARGOS_SEARXNG_URL` | `http://127.0.0.1:8080` | Adapter base URL |
 | `ARGOS_AUTO_START` | `1` | Boot the WSL2 stack on demand when the adapter is enabled and down |
 | `ARGOS_IDLE_STOP_SECS` | `300` | Terminate the stack after idle (`0` = keep) |
@@ -88,14 +90,14 @@ set ARGOS_PROVIDERS=duckduckgo,bing,searxng
 
 Anti-bot limits live in the **upstream engines**, not in your client — and *every* keyless approach shares that wall (SearXNG's own docs admit it gets CAPTCHAs too; its limiter exists to throttle *you*). Measurements from one residential IP,2026-09-24:
 
-| Endpoint | Result with plain reqwest + browser UA |
-|---|---|
-| `html.duckduckgo.com` | **200**,12 organic results (PowerShell's UA got 403 — UA matters) |
-| `www.bing.com/search` | **200**,20 `b_algo` blocks |
-| `www.mojeek.com/search` | CAPTCHA page (two attempts) |
-| `search.brave.com/search` | **429** |
+| Endpoint | Plain client (reqwest, rustls **and** schannel) | With primp (Chrome153 impersonation) |
+|---|---|---|
+| `html.duckduckgo.com` | 200 with browser UA / 403 with PowerShell UA | **200**,10-12 organic results |
+| `www.bing.com/search` | **302 → homepage** (same headers/HTTP1.1 that curl passes — pure ClientHello discrimination) | **200**,10 `b_algo` |
+| `search.brave.com/search` | **429** | **200**,20 web results |
+| `www.mojeek.com/search` | CAPTCHA | CAPTCHA (IP/consent-based — out of the set) |
 
-Argos raises the ceiling with design instead of hoping: **parallel fanout across independent rate budgets**, fair merge + URL dedup (fewer redundant queries for the agent), per-request timeouts, typed rate-limit errors with failover, and — in the SearXNG adapter — on-demand lifecycle so nothing idles.
+Argos raises the ceiling with design instead of hoping: **browser impersonation at the transport layer**, **parallel fanout across independent rate budgets**, fair merge + URL dedup (fewer redundant queries for the agent), per-request timeouts, typed rate-limit errors with failover, and — in the SearXNG adapter — on-demand lifecycle so nothing idles.
 
 ## Comparison (researched 2026-09-23)
 
@@ -113,7 +115,7 @@ Argos raises the ceiling with design instead of hoping: **parallel fanout across
 
 ## Roadmap
 
-1. **M1** — keyless fanout (DDG + Bing), dedup, typed errors, fixtures ← *current*
+1. **M1** — keyless fanout (DDG + Bing + Brave, primp impersonation), dedup, typed errors, fixtures ← *current*
 2. **M1.1** — more keyless providers as measurements allow
 3. **M2** — `research` orchestrator: parallel multi-query fan-out, progress + cancellation, compact digest (ChatGPT/Qwen deep-research style)
 4. **M3** — content extraction (Rust readability, no XPath) and optional cloud providers behind the same trait

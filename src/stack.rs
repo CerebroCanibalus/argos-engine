@@ -97,13 +97,13 @@ async fn watchdog(distro: String, idle_stop: Duration) {
     loop {
         tokio::time::sleep(Duration::from_secs(30)).await;
         let mut stamp = last_used().lock().await;
-        if let Some(used_at) = *stamp {
-            if used_at.elapsed() >= idle_stop {
-                // Clear the stamp first: only one terminate per usage cycle.
-                *stamp = None;
-                drop(stamp);
-                terminate(&distro).await;
-            }
+        if let Some(used_at) = *stamp
+            && used_at.elapsed() >= idle_stop
+        {
+            // Clear the stamp first: only one terminate per usage cycle.
+            *stamp = None;
+            drop(stamp);
+            terminate(&distro).await;
         }
     }
 }

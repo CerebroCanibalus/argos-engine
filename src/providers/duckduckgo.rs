@@ -3,12 +3,12 @@
 use flojo_mcp::async_trait::async_trait;
 use flojo_mcp::truncate_string;
 use percent_encoding::percent_decode_str;
-use reqwest::StatusCode;
+use primp::StatusCode;
 
 use crate::config::Config;
 use crate::error::ArgosError;
 use crate::limits::{SNIPPET_MAX_CHARS, TITLE_MAX_CHARS};
-use crate::providers::{SearchProvider, keyless_client};
+use crate::providers::{SearchProvider, impersonated_client, impersonated_health_client};
 use crate::types::SearchResult;
 
 const ENGINE: &str = "duckduckgo";
@@ -32,10 +32,10 @@ fn unwrap_href(href: &str) -> String {
     if let Some(pos) = href.find("uddg=") {
         let value = &href[pos + "uddg=".len()..];
         let end = value.find('&').unwrap_or(value.len());
-        if let Ok(decoded) = percent_decode_str(&value[..end]).decode_utf8() {
-            if decoded.starts_with("http") {
-                return decoded.to_string();
-            }
+        if let Ok(decoded) = percent_decode_str(&value[..end]).decode_utf8()
+            && decoded.starts_with("http")
+        {
+            return decoded.to_string();
         }
     }
     if let Some(rest) = href.strip_prefix("//") {
@@ -104,10 +104,9 @@ impl SearchProvider for DuckDuckGoProvider {
             params.push(("s", offset.to_string()));
         }
 
-        let response = keyless_client()
+        let response = impersonated_client(&self.config)
             .post(ENDPOINT)
             .form(&params)
-            .timeout(self.config.request_timeout)
             .send()
             .await
             .map_err(|ex| ArgosError::Unreachable {
@@ -143,9 +142,8 @@ impl SearchProvider for DuckDuckGoProvider {
     }
 
     async fn health(&self) -> bool {
-        keyless_client()
+        impersonated_health_client()
             .get(ENDPOINT)
-            .timeout(std::time::Duration::from_secs(3))
             .send()
             .await
             .is_ok()

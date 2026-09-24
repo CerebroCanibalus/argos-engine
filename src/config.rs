@@ -37,7 +37,7 @@ impl Default for Config {
             idle_stop: Duration::from_secs(300),
             wsl_distro: "Ubuntu".into(),
             stack_script: default_stack_script(),
-            providers: vec!["duckduckgo".into(), "bing".into()],
+            providers: vec!["duckduckgo".into(), "bing".into(), "brave".into()],
         }
     }
 }
@@ -127,7 +127,7 @@ mod tests {
         assert_eq!(config.idle_stop, Duration::from_secs(300));
         assert_eq!(config.wsl_distro, "Ubuntu");
         assert!(config.stack_script.to_string_lossy().contains("searxng"));
-        assert_eq!(config.providers, vec!["duckduckgo", "bing"]);
+        assert_eq!(config.providers, vec!["duckduckgo", "bing", "brave"]);
     }
 
     #[test]

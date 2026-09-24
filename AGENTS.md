@@ -6,16 +6,17 @@ Memoria viva del proyecto (flujo universal de fases: 0 inicialización → 1 fun
 
 - **Qué es**: MCP server en Rust sobre FlojoMCP — reemplazo propio, superior y **eficiente en tokens** de los MCPs/plugins de búsqueda; research masiva estilo ChatGPT/Qwen.
 - **Nombre**: Argos Engine. Repo: https://github.com/CerebroCanibalus/argos-engine (GPL-3.0-only, público desde el primer commit).
-- **M1 FINAL (2026-09-24, decisión del usuario tras datos)**: **fanout multi-provider keyless — DuckDuckGo + Bing por defecto** (`ARGOS_PROVIDERS`), **cero VM/cero Docker/cero keys**. El requisito inicial "Sólo SearXNG" se abandonó tras medir el coste real de la VM en esta máquina (ver saga WSL). SearXNG queda como **adapter opcional** ya escrito (`providers/searxng.rs` + `stack.rs`).
+- **M1 FINAL (2026-09-24, decisión del usuario tras datos)**: **fanout multi-provider keyless — DuckDuckGo + Bing + Brave por defecto** (`ARGOS_PROVIDERS`), **cero VM/cero Docker/cero keys**. Transporte = **primp** (crate de deedy5, el mismo que ddgs) **impersonando ChromeV153/Windows** — sin eso Bing redirige a su homepage (302) y Brave devuelve429. El requisito inicial "Sólo SearXNG" se abandonó tras medir el coste real de la VM (ver saga WSL). SearXNG queda como **adapter opcional** ya escrito (`providers/searxng.rs` + `stack.rs`, sigue en reqwest — localhost no necesita impersonation).
 - **Referencias**: FlojoMCP en `D:\Mis Juegos\ClaudeMCPs\FlojoMCP` (dep git, público). MCP Python de referencia (ddgs v9.16.0) en `D:\Mis Juegos\ClaudeMCPs\ddgs` — parsers de motores para sincronizar fixes.
 
 ## Datos de límites (medidos,2026-09-24, esta IP/residencial)
 
 - `html.duckduckgo.com`: **200 con12 resultados** usando reqwest+rustls+UA Chrome (UA de PowerShell → **403**: la UA importa). Avisos públicos:202/403 bajo automatización.
 - `www.bing.com/search`: **200**,20 bloques `b_algo` (URLs envueltas en `ck/a?u=a1<base64url>`).
-- `www.mojeek.com`: **página CAPTCHA** (2 intentos, con cookies/headers). `search.brave.com`: **429**. Ambos FUERA del set por ahora.
+- `www.mojeek.com`: **página CAPTCHA** en todo caso (2 intentos planos + primp; es bloqueo IP/consent) → FUERA del set. `search.brave.com`: **429 con clientes planos,200 con primp** → DENTRO del set.
 - **SearXNG NO exenta**: docs oficiales dicen que es clasificado como bot y recibe CAPTCHA/bloqueo (su limiter te frena a ti). Issue: motores suspendidos24h.
-- ddgs marca `provider="bing"` en DuckDuckGo → DDG y Bing comparten índice pero son **presupuestos anti-bot independientes** (failover de endpoint).
+- **Transporte = el discriminante real** (medido2026-09-24): reqwest puro (rustls **y** schannel/native-tls) → Bing **302 a homepage** (mismo header set y HTTP/1.1 que curl, que sí pasaba → delta = ClientHello/JA3), Brave **429**, Mojeek CAPTCHA; PowerShell → DDG403. **primp `Impersonate::ChromeV153` + `ImpersonateOS::Windows` → DDG/Bing/Brave todos200 con resultados reales**; Mojeek sigue CAPTCHA (bloqueo IP/consent, no TLS). `rust-version` subido a **1.89** (piso de primp). `aws-lc-sys` compila OK con VS18 (cmake crate).
+- ddgs marca `provider="bing"` en DuckDuckGo → DDG y Bing comparten índice pero son **presupuestos anti-bot independientes**; **Brave aporta índice INDEPENDIENTE** (crawler propio) → diversidad real +3º presupuesto.
 - **Lección**: el techo se sube con diseño (fanout paralelo + dedup + pacing + cache), no con un backend mágico.
 
 ## Anti-objetivos (los problemas del MCP Python que NO repetir)
@@ -53,15 +54,17 @@ src/
   limits.rs      presupuestos de TOKENS: TITLE_MAX=200, SNIPPET_MAX=300, clamps limit/page
   stack.rs       ciclo de vida WSL2 on-demand (sólo adapter SearXNG): ensure_up/note_usage/watchdog
   providers/
-    mod.rs       trait SearchProvider {search,health} + USER_AGENT (obligatorio: UA Chrome) + keyless_client()
-                 (OnceLock con Accept/Accept-Language por defecto)
+    mod.rs       trait SearchProvider {search,health} + impersonated_client() (primp ChromeV153/Windows,
+                 timeout desde Config al primer uso) + impersonated_health_client() (3s, no cuelga status)
     fanout.rs    Fanout: join_all en paralelo, merge round-robin, dedup por URL normalizada,
                  si todo falla prefiere el error RateLimited; from_config ignora nombres desconocidos
                  y cae a los defaults si la lista queda vacía
     duckduckgo.rs POST html/ (params ddgs: q,b,l + s=10+(page-2)*15); parse div.result → a.result__a/
                  a.result__snippet; filtra /y.js; unwrap //duckduckgo.com/l/?uddg= (percent-decode)
-    bing.rs      GET /search (q,pq,cc + first); parse li.b_algo → h2 a + p; filtra aclick;
+    bing.rs      GET /search (q,pq,cc + first vía .query); parse li.b_algo → h2 a + p; filtra aclick;
                  unwrap ck/a?u=a1<base64url> (base64 crate)
+    brave.rs     GET /search (q,source=web + offset); parse div[data-type=web] → a[href] + div.title +
+                 .generic-snippet .content (fixture propio337KB); ÍNDICE INDEPENDIENTE
     searxng.rs   adapter opcional JSON; auto-heal: Down + auto_start → stack::ensure_up + retry;
                  success → stack::note_usage
   tools/         handlers finos: status (probes por provider) y search (valida → Fanout)
@@ -71,7 +74,7 @@ examples/probe.rs sonda viva de endpoints
 ```
 
 - **Los derives expanden rutas absolutas `::serde`/`::schemars` → `serde` (v1) y `schemars` (v0.8) DEBEN ser dependencias directas**; traits vía re-exports de flojo. Si faltan: `E0463`/`E0433`.
-- Dependencias: `flojo-mcp` (git), `tokio`, `serde`, `schemars`, `thiserror`, `reqwest` (rustls), `scraper`, `percent-encoding`, `base64`, `futures`.
+- Dependencias: `flojo-mcp` (git), `tokio`, `serde`, `schemars`, `thiserror`, **`primp`** (impersonation — providers keyless), `reqwest` (native-tls — sólo adapter SearXNG localhost), `scraper`, `percent-encoding`, `base64`, `futures`.
 - `truncate_string(s,max)` de Flojo **corta en max de contenido y añade `...`** (tope real max+3).
 - Tests sin red: FlojoTester + fixtures HTML/JSON reales + mocks del trait (fanout: interleave, dedup, límite, preferencia de error).
 
@@ -81,6 +84,6 @@ examples/probe.rs sonda viva de endpoints
 
 ## Convenciones
 
-- Rust edition 2024, rust-version 1.85+, `clippy -D warnings`, `cargo fmt` obligatorio.
+- Rust edition 2024, rust-version **1.89** (piso de primp), `clippy -D warnings`, `cargo fmt` obligatorio.
 - Inglés en README, código, mensajes de tool y commits; español en esta memoria.
 - Registro de decisiones: actualizar esta memoria al cerrar cada iteración.

@@ -8,7 +8,7 @@ use crate::providers::fanout::Fanout;
 use crate::types::SearchResult;
 
 #[tool(
-    description = "Web search through keyless providers (DuckDuckGo + Bing by default) with parallel fanout, URL dedup and automatic failover. Compact results: url, title, snippet, engine."
+    description = "Web search through keyless providers (DuckDuckGo + Bing + Brave by default) with parallel fanout, URL dedup and automatic failover. Compact results: url, title, snippet, engine."
 )]
 pub async fn search(
     query: String,
