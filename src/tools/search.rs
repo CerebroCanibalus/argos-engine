@@ -3,7 +3,7 @@ use flojo_mcp::prelude::*;
 use crate::config::Config;
 use crate::error::ArgosError;
 use crate::limits::{clamp_limit, clamp_page};
-use crate::providers::fanout::Fanout;
+use crate::metasearch::MetasearchRouter;
 use crate::quality;
 use crate::types::SearchOutcome;
 
@@ -25,8 +25,8 @@ pub async fn search(
     let provider_query = quality::scoped_query(&relevance_query, &domains);
 
     let config = Config::from_env();
-    let fanout = Fanout::from_config(&config);
-    let outcome = fanout
+    let router = MetasearchRouter::from_config(&config);
+    let outcome = router
         .run(
             &provider_query,
             &relevance_query,

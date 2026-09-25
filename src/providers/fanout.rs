@@ -88,6 +88,7 @@ impl Fanout {
     }
 
     /// Fan a single query out to every provider and return the merged view.
+    #[cfg(test)]
     pub async fn run(
         &self,
         provider_query: &str,
@@ -96,16 +97,57 @@ impl Fanout {
         page: usize,
         domains: &[String],
     ) -> Result<SearchOutcome, ArgosError> {
+        self.run_filtered(None, provider_query, relevance_query, limit, page, domains)
+            .await
+    }
+
+    /// Fan out only to the IDs selected by the native metasearch router.
+    pub async fn run_selected(
+        &self,
+        selected: &[String],
+        provider_query: &str,
+        relevance_query: &str,
+        limit: usize,
+        page: usize,
+        domains: &[String],
+    ) -> Result<SearchOutcome, ArgosError> {
+        let selected_names: HashSet<String> = selected.iter().cloned().collect();
+        self.run_filtered(
+            Some(&selected_names),
+            provider_query,
+            relevance_query,
+            limit,
+            page,
+            domains,
+        )
+        .await
+    }
+
+    async fn run_filtered(
+        &self,
+        selected_names: Option<&HashSet<String>>,
+        provider_query: &str,
+        relevance_query: &str,
+        limit: usize,
+        page: usize,
+        domains: &[String],
+    ) -> Result<SearchOutcome, ArgosError> {
+        let active_providers: Vec<&(String, Box<dyn SearchProvider>)> = self
+            .providers
+            .iter()
+            .filter(|(name, _)| {
+                selected_names.is_none_or(|selected| selected.contains(name.as_str()))
+            })
+            .collect();
         let outcomes = join_all(
-            self.providers
+            active_providers
                 .iter()
                 .map(|(_, provider)| provider.search(provider_query, limit, page)),
         )
         .await;
 
-        let per_provider: Vec<(String, Result<Vec<SearchResult>, ArgosError>)> = self
-            .providers
-            .iter()
+        let per_provider: Vec<(String, Result<Vec<SearchResult>, ArgosError>)> = active_providers
+            .into_iter()
             .zip(outcomes)
             .map(|((name, _), outcome)| (name.clone(), outcome))
             .collect();

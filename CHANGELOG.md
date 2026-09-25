@@ -2,10 +2,18 @@
 
 All notable Argos Engine changes are recorded here.
 
+## 0.3.0 — native metasearch routing
+
+- Added the M1.2a native provider registry and selector.
+- Added process-shared provider runtime state, cooldown after rate limits, unreachable backoff, `NoEligibleProviders`, and bounded fallback waves.
+- Added `ARGOS_META_INITIAL` and `ARGOS_META_TOTAL` controls.
+- Kept the current four implemented providers compatible; public/keyless adapters are the next M1.3 wave.
+
 ## Unreleased
 
 - Planned M1.2 Native Metasearch Engine: provider registry, profiles, index-family diversity, circuit breaker, quota/cooldown state, RRF fusion and compact token-aware output.
 - Added `PROVIDERS.md` as the categorized source of truth for 30 candidate adapters, prioritizing keyless/public APIs before user-key free tiers, paid providers and experimental HTML endpoints.
+- Planned M1.2 continuation: RRF fusion, Retry-After propagation, quota ledger and public API adapters.
 
 ## 0.2.1 — provider quality gate
 

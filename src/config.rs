@@ -24,6 +24,10 @@ pub struct Config {
     pub stack_script: PathBuf,
     /// Enabled providers in fanout order (`ARGOS_PROVIDERS`, comma-separated).
     pub providers: Vec<String>,
+    /// Maximum providers in the first metasearch wave.
+    pub metasearch_initial: usize,
+    /// Maximum providers considered across all fallback waves.
+    pub metasearch_total: usize,
 }
 
 impl Default for Config {
@@ -38,6 +42,8 @@ impl Default for Config {
             wsl_distro: "Ubuntu".into(),
             stack_script: default_stack_script(),
             providers: vec!["duckduckgo".into(), "bing".into(), "brave".into()],
+            metasearch_initial: 3,
+            metasearch_total: 3,
         }
     }
 }
@@ -65,6 +71,13 @@ fn parse_secs(name: &str, default: Duration) -> Duration {
         .ok()
         .and_then(|raw| raw.trim().parse::<u64>().ok())
         .map_or(default, Duration::from_secs)
+}
+
+fn parse_count(name: &str, default: usize, min: usize, max: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|raw| raw.trim().parse::<usize>().ok())
+        .map_or(default, |value| value.clamp(min, max))
 }
 
 /// Split a comma-separated provider list into normalized lowercase names.
@@ -108,6 +121,10 @@ impl Config {
                 config.providers = providers;
             }
         }
+        let initial = parse_count("ARGOS_META_INITIAL", config.metasearch_initial, 1, 10);
+        let total = parse_count("ARGOS_META_TOTAL", config.metasearch_total, initial, 30);
+        config.metasearch_initial = initial;
+        config.metasearch_total = total;
         config
     }
 }
@@ -128,6 +145,8 @@ mod tests {
         assert_eq!(config.wsl_distro, "Ubuntu");
         assert!(config.stack_script.to_string_lossy().contains("searxng"));
         assert_eq!(config.providers, vec!["duckduckgo", "bing", "brave"]);
+        assert_eq!(config.metasearch_initial, 3);
+        assert_eq!(config.metasearch_total, 3);
     }
 
     #[test]

@@ -6,6 +6,7 @@
 mod config;
 mod error;
 mod limits;
+mod metasearch;
 mod providers;
 mod quality;
 mod stack;
@@ -14,7 +15,7 @@ mod types;
 
 use flojo_mcp::prelude::*;
 
-#[flojo_mcp(name = "argos-engine", version = "0.2.1")]
+#[flojo_mcp(name = "argos-engine", version = "0.3.0")]
 struct ArgosEngine;
 
 #[tokio::main]

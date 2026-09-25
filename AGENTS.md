@@ -23,6 +23,7 @@ Memoria viva del proyecto (flujo universal de fases: 0 inicialización → 1 fun
 - **FASE ACTIVA M1.2 (2026-09-25) — Native Metasearch Engine**: construir el router/registry antes de añadir providers. Objetivo: registry amplio (objetivo 30 adapters), 5–10 providers elegibles por perfil, 2–5 simultáneos por búsqueda y fallback inmediato por estado. El catálogo categorizado vive en `PROVIDERS.md`; la prioridad es `P0_KEYLESS`/`P1_PUBLIC_API`, luego vertical pública, después user-key/free-tier y por último paid/HTML experimental.
 - **Routing inteligente**: `ProviderState` (healthy/cooldown/rate_limited/quota_exhausted/auth_missing/filtered/degraded/unreachable), `index_family` para no contar wrappers como diversidad, selector por perfil/calidad/cuota/coste, circuit breaker, `Retry-After`/backoff, cancelación de requests inferiores cuando hay confianza y RRF/fusión. Nunca consultar 30 providers en paralelo ni devolver el manifiesto completo en cada search.
 - **Eficiencia de tokens**: separar coste de cuota (no repetir/rate-limit/cache) de payload MCP (5–10 resultados compactos, `source` hostname, budgets title/snippet, warnings sólo relevantes). La calidad se mide por éxito usable, overlap, fuentes únicas, concentración de dominios, freshness y score por categoría; HTTP200 nunca es calidad.
+- **v0.3.0 (release M1.2a)**: `metasearch.rs` registry/selector, estado compartido, cooldown/rate-limit/unreachable y fallback por oleadas; cuatro adapters actuales siguen siendo los únicos con factory. RRF, `Retry-After`, cuotas y adapters keyless públicos quedan para la continuación de M1.2/M1.3.
 - **Política de claves**: adapters y perfiles se distribuyen, nunca claves compartidas. Tavily/Firecrawl/Exa/Brave/Kagi/Marginalia/etc. se activan con key del usuario; providers keyless públicos son primera clase. No evasión de CAPTCHA, proxy rotation ni resolución de challenges.
 
 ## M1.2 — diseño verificable del Native Metasearch
@@ -70,6 +71,8 @@ src/
   types.rs       SearchResult, Status, ProviderHealth (contratos con derives)
   limits.rs      presupuestos de TOKENS: TITLE_MAX=200, SNIPPET_MAX=300, clamps limit/page
   stack.rs       ciclo de vida WSL2 on-demand (sólo adapter SearXNG): ensure_up/note_usage/watchdog
+  metasearch.rs  M1.2 native registry/selector: manifests, perfiles, estados compartidos, cooldown,
+                 selección por oleadas y fallback inmediato sobre Fanout::run_selected
   quality.rs      normaliza domains, scope exacto/subdominio, construye query site: y filtro léxico conservador
   providers/
     mod.rs       trait SearchProvider {search,health} + impersonated_client() (primp ChromeV153/Windows,

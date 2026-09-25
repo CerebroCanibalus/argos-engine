@@ -81,6 +81,8 @@ set ARGOS_PROVIDERS=duckduckgo,bing,searxng
 | Env var | Default | Meaning |
 |---|---|---|
 | `ARGOS_PROVIDERS` | `duckduckgo,bing,brave` | Enabled providers, fanout order (adds `searxng` to opt in) |
+| `ARGOS_META_INITIAL` | `3` | Maximum providers in the first native metasearch wave |
+| `ARGOS_META_TOTAL` | `3` | Maximum providers considered across fallback waves |
 | `ARGOS_SEARXNG_URL` | `http://127.0.0.1:8080` | Adapter base URL |
 | `ARGOS_AUTO_START` | `1` | Boot the WSL2 stack on demand when the adapter is enabled and down |
 | `ARGOS_IDLE_STOP_SECS` | `300` | Terminate the stack after idle (`0` = keep) |

@@ -57,6 +57,14 @@ pub enum ArgosError {
         rejected: usize,
     },
 
+    /// No configured provider is currently eligible because all are in
+    /// cooldown, exhausted, degraded, or missing authentication.
+    #[error("no search providers are currently eligible")]
+    NoEligibleProviders {
+        /// Configured provider IDs, for diagnosis.
+        providers: Vec<String>,
+    },
+
     /// SearXNG answered with a non-200 status.
     #[error("SearXNG returned HTTP {status}")]
     Http {
@@ -115,6 +123,10 @@ impl From<ArgosError> for ToolError {
                 "hint": "Providers answered, but no result passed Argos' domain or lexical relevance gate. Inspect the query, narrow the domains, or use another research formulation.",
                 "returned": returned,
                 "rejected": rejected,
+            })),
+            ArgosError::NoEligibleProviders { providers } => tool_error.with_data(json!({
+                "hint": "All configured providers are temporarily unavailable. Argos will retry them after their cooldown; inspect provider status or add another configured provider.",
+                "providers": providers,
             })),
             ArgosError::Http { hint, .. } => tool_error.with_data(json!({ "hint": hint })),
             ArgosError::StackBoot { .. } => tool_error.with_data(json!({
@@ -225,6 +237,24 @@ mod tests {
                 .as_str()
                 .unwrap_or_default()
                 .contains("domain")
+        );
+    }
+
+    #[test]
+    fn no_eligible_providers_explains_cooldown_state() {
+        let error: ToolError = ArgosError::NoEligibleProviders {
+            providers: vec!["brave".into(), "ddg".into()],
+        }
+        .into();
+        let data = error.to_error_data();
+        let payload = data.data.expect("provider payload");
+        assert!(data.message.contains("no search providers"));
+        assert_eq!(payload["providers"].as_array().expect("providers").len(), 2);
+        assert!(
+            payload["hint"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("cooldown")
         );
     }
 
