@@ -39,6 +39,14 @@ pub enum ArgosError {
         status: u16,
     },
 
+    /// Every configured provider rate-limited this IP, so the search returned
+    /// nothing because of anti-bot pressure - not because the topic has no hits.
+    #[error("all providers rate-limited this IP")]
+    AllProvidersRateLimited {
+        /// `(engine, http_status)` for every provider that answered rate-limit.
+        providers: Vec<(String, u16)>,
+    },
+
     /// SearXNG answered with a non-200 status.
     #[error("SearXNG returned HTTP {status}")]
     Http {
@@ -85,6 +93,13 @@ impl From<ArgosError> for ToolError {
             })),
             ArgosError::RateLimited { .. } => tool_error.with_data(json!({
                 "hint": "This engine flagged your IP (202/403/429 are the classic anti-bot answers). Wait it out, and raise the ceiling by enabling more providers via ARGOS_PROVIDERS - the fanout spreads load across independent rate budgets.",
+            })),
+            ArgosError::AllProvidersRateLimited { providers } => tool_error.with_data(json!({
+                "hint": "Every configured provider answered with an anti-bot status. The search returned nothing because your IP was throttled, not because the topic has no hits.",
+                "providers": providers.iter().map(|(name, status)| json!({
+                    "name": name,
+                    "status": status,
+                })).collect::<Vec<_>>(),
             })),
             ArgosError::Http { hint, .. } => tool_error.with_data(json!({ "hint": hint })),
             ArgosError::StackBoot { .. } => tool_error.with_data(json!({
@@ -158,6 +173,24 @@ mod tests {
             .to_string();
         assert!(hint.contains("ARGOS_PROVIDERS"));
         assert!(hint.contains("fanout"));
+    }
+
+    #[test]
+    fn all_providers_rate_limited_lists_them_and_distinguishes_from_no_results() {
+        let error: ToolError = ArgosError::AllProvidersRateLimited {
+            providers: vec![("duckduckgo".into(), 202), ("bing".into(), 429)],
+        }
+        .into();
+        let data = error.to_error_data();
+        assert!(data.message.contains("all providers rate-limited"));
+        let payload = data.data.expect("hint payload expected");
+        let hint = payload["hint"].as_str().unwrap_or_default();
+        assert!(
+            hint.contains("throttled"),
+            "hint must explain this isn't 'no hits': {hint}"
+        );
+        let listed = payload["providers"].as_array().expect("providers array");
+        assert_eq!(listed.len(), 2);
     }
 
     #[test]

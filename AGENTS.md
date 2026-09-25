@@ -22,7 +22,8 @@ Memoria viva del proyecto (flujo universal de fases: 0 inicialización → 1 fun
 ## Anti-objetivos (los problemas del MCP Python que NO repetir)
 
 - Tools sin deadline/cancelación → timeouts por-request + `ctx.is_cancelled()`/`report_progress()` en M2.
-- Errores genéricos que devoran la excepción → `ArgosError` tipado + `.with_data(hint)` (ver `error.rs`; `RateLimited` explica el techo).
+- Errores genéricos que devoran la excepción → `ArgosError` tipado + `.with_data(hint)` (ver `error.rs`; `RateLimited`/`AllProvidersRateLimited` explican el techo).
+- **Fallos de providers tragados en silencio** → cada `search` devuelve `providers: Vec<ProviderEntry { name, status }>` (status = `ok|empty|rate_limited|unreachable`) + `warnings: Vec<String>`; si TODOS rate-limitean → `ArgosError::AllProvidersRateLimited` con la lista (pista la diferencia vs. "no hay hits").
 - Instancia fría por llamada → clientes compartidos (`OnceLock`) + caché en M2.
 - N llamadas secuenciales del LLM → futuro tool `research` (fan-out interno).
 - **NDJSON siempre**: `flojo_run_stdio`, NUNCA `flojo_run_stdio_cl` con OpenCode. stdout sólo protocolo.
@@ -56,9 +57,10 @@ src/
   providers/
     mod.rs       trait SearchProvider {search,health} + impersonated_client() (primp ChromeV153/Windows,
                  timeout desde Config al primer uso) + impersonated_health_client() (3s, no cuelga status)
-    fanout.rs    Fanout: join_all en paralelo, merge round-robin, dedup por URL normalizada,
-                 si todo falla prefiere el error RateLimited; from_config ignora nombres desconocidos
-                 y cae a los defaults si la lista queda vacía
+                 + compact_source(url) → host sin scheme/www/path (truncado)
+    fanout.rs    Fanout::run: join_all en paralelo, merge round-robin, dedup por URL normalizada;
+                 construye SearchOutcome {results, providers, warnings} reflejando el estado real de
+                 cada provider (incluidos los degradados); TODOS rate-limited → AllProvidersRateLimited
     duckduckgo.rs POST html/ (params ddgs: q,b,l + s=10+(page-2)*15); parse div.result → a.result__a/
                  a.result__snippet; filtra /y.js; unwrap //duckduckgo.com/l/?uddg= (percent-decode)
     bing.rs      GET /search (q,pq,cc + first vía .query); parse li.b_algo → h2 a + p; filtra aclick;
@@ -67,7 +69,8 @@ src/
                  .generic-snippet .content (fixture propio337KB); ÍNDICE INDEPENDIENTE
     searxng.rs   adapter opcional JSON; auto-heal: Down + auto_start → stack::ensure_up + retry;
                  success → stack::note_usage
-  tools/         handlers finos: status (probes por provider) y search (valida → Fanout)
+  tools/         handlers finos: status (probes por provider) y search (valida → append site: si domains
+                 no vacío → Fanout::run)
 tests/fixtures/  HTML REAL: duckduckgo.html (42KB/12 resultados), bing.html (124KB/20 bloques),
                  mojeek.html (CAPTCHA — referencia de qué NO pasar), searxng_search.json
 examples/probe.rs sonda viva de endpoints

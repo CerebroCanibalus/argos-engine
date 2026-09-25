@@ -10,7 +10,7 @@ use flojo_mcp::truncate_string;
 use crate::config::Config;
 use crate::error::ArgosError;
 use crate::limits::{SNIPPET_MAX_CHARS, TITLE_MAX_CHARS};
-use crate::providers::SearchProvider;
+use crate::providers::{SearchProvider, compact_source};
 use crate::stack;
 use crate::types::SearchResult;
 
@@ -41,6 +41,7 @@ pub fn parse_results(payload: &str) -> Result<Vec<SearchResult>, ArgosError> {
         .results
         .into_iter()
         .map(|raw| SearchResult {
+            source: compact_source(&raw.url),
             url: raw.url,
             title: truncate_string(&raw.title, TITLE_MAX_CHARS).0,
             snippet: truncate_string(&raw.content, SNIPPET_MAX_CHARS).0,

@@ -8,7 +8,9 @@ use primp::StatusCode;
 use crate::config::Config;
 use crate::error::ArgosError;
 use crate::limits::{SNIPPET_MAX_CHARS, TITLE_MAX_CHARS};
-use crate::providers::{SearchProvider, impersonated_client, impersonated_health_client};
+use crate::providers::{
+    SearchProvider, compact_source, impersonated_client, impersonated_health_client,
+};
 use crate::types::SearchResult;
 
 const ENGINE: &str = "bing";
@@ -82,6 +84,7 @@ pub fn parse_results(html: &str) -> Result<Vec<SearchResult>, ArgosError> {
             .map(|node| node.text().collect::<String>().trim().to_string())
             .unwrap_or_default();
         results.push(SearchResult {
+            source: compact_source(&url),
             url,
             title: truncate_string(&title, TITLE_MAX_CHARS).0,
             snippet: truncate_string(&snippet, SNIPPET_MAX_CHARS).0,

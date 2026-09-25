@@ -12,7 +12,9 @@ Search MCPs force a bad trade: scrape fragile engines yourself, rent an API key,
 - **Browser impersonation**: the HTTP layer ([primp](https://github.com/deedy5/primp), same crate ddgs uses) masquerades as Chrome153/Windows — measured difference: without it Bing serves a `302` to its homepage and Brave returns `429`; with it all three engines answer `200`.
 - **Fanout with failover**: all providers queried in parallel, results merged round-robin and deduplicated by URL. When one engine rate-limits your IP (202/403/429 happen — see below), **the others still answer**: research degrades, it doesn't die.
 - **Tokens are a feature**: compact results, server-side truncation budgets (`src/limits.rs`), dedup before the agent ever sees duplicates.
-- **Honest, typed errors**: `rate-limited`, `unreachable`, `still starting` — each with an actionable hint, never a generic `Error executing tool` ghost.
+- **No silent failures**: every `search` response carries the per-provider status (`ok`, `empty`, `rate_limited`, `unreachable`) and the warnings. If all engines were throttled, the tool returns a typed `AllProvidersRateLimited` error so the agent knows the empty result came from anti-bot pressure, not from a genuinely empty topic.
+- **Honest, typed errors**: `rate_limited`, `unreachable`, `still starting`, `all_providers_rate_limited` — each with an actionable hint, never a generic `Error executing tool` ghost.
+- **Per-provider visibility**: every `search` response carries `{ results, providers: [{name, kind}], warnings }` so the agent knows exactly which engines contributed, which were empty, and which errored.
 - **One small binary**: ~7 MB exe, ~5 ms startup, ~4 MB RAM — no Python/Node runtime.
 - **Optional SearXNG adapter**: already written for machines with Docker/WSL2 (70+ engines behind one JSON API) — off by default.
 
@@ -25,7 +27,7 @@ Early development — **Milestone 1: keyless multi-provider search**. Not produc
 | `search` via keyless fanout (DuckDuckGo + Bing + Brave), dedup + failover | ✅ |
 | Browser impersonation (primp / Chrome153) — Bing & Brave pass | ✅ |
 | `status` with per-provider reachability probes | ✅ |
-| Typed errors with hints (`rate_limited`, `unreachable`, ...) | ✅ |
+| Typed errors with hints (`rate_limited`, `all_rate_limited`, `unreachable`, ...) | ✅ |
 | Real-markup fixture tests (captured HTML from live engines) | ✅ |
 | Optional SearXNG adapter + on-demand WSL2 stack lifecycle | ✅ (opt-in via `ARGOS_PROVIDERS`) |
 | More keyless providers (Mojeek still CAPTCHA from this IP) | 📋 M1.1 |
@@ -71,7 +73,7 @@ set ARGOS_PROVIDERS=duckduckgo,bing,searxng
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `search` | `query`, `limit?` (1-50, default 10), `page?` | `[{ url, title, snippet, engine }]` |
+| `search` | `query`, `limit?` (1-50, default 10), `page?`, `domains?` (`[String]`, e.g. `["kvrforums.com", "reddit.com"]`) | `{ results: [{ url, source, title, snippet, engine }], providers: [{name, kind: "ok"|"empty"|"rate_limited"|"unreachable", ...}], warnings: [...] }` |
 | `status` | – | `{ name, version, searxng_url, searxng_reachable, providers: [{name, reachable}] }` |
 
 ### Configuration
@@ -115,9 +117,12 @@ Argos raises the ceiling with design instead of hoping: **browser impersonation 
 
 ## Roadmap
 
-1. **M1** — keyless fanout (DDG + Bing + Brave, primp impersonation), dedup, typed errors, fixtures ← *current*
+1. **M1** — keyless fanout (DDG + Bing + Brave, primp impersonation), dedup, typed errors, fixtures, per-provider outcome (rate-limited states visible), `domains` site-scoping ← *current*
+2. **M1.1** — more keyless providers, diagnostic in `status` of which provider was actually rate-limited vs captcha-hidden
+3. **M2** — `research` tool: multi-query fan-out with reformulation, optional source allowlist, progress + cancellation, compact digest (ChatGPT/Qwen deep-research style)
+4. **M3** — content extraction (Rust readability, no XPath) and optional cloud providers behind the same trait
 2. **M1.1** — more keyless providers as measurements allow
-3. **M2** — `research` orchestrator: parallel multi-query fan-out, progress + cancellation, compact digest (ChatGPT/Qwen deep-research style)
+3. **M2** — `research` tool: parallel multi-query fan-out, progress + cancellation, compact digest (ChatGPT/Qwen deep-research style)
 4. **M3** — content extraction (Rust readability, no XPath) and optional cloud providers behind the same trait
 
 Decisions and progress live in [AGENTS.md](./AGENTS.md).

@@ -52,6 +52,26 @@ pub fn impersonated_health_client() -> primp::Client {
     CLIENT.get_or_init(|| build_client(HEALTH_TIMEOUT)).clone()
 }
 
+/// Compact hostname for the `source` field (no scheme, no path, no `www.`).
+/// Falls back to a manual split when the URL parser rejects the input.
+pub(crate) fn compact_source(url: &str) -> String {
+    let host = url::Url::parse(url)
+        .ok()
+        .and_then(|parsed| parsed.host_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| {
+            let stripped = url
+                .trim_start_matches("https://")
+                .trim_start_matches("http://");
+            stripped.split('/').next().unwrap_or("").to_string()
+        });
+    let trimmed = host.trim_start_matches("www.");
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        crate::limits::truncate_source(trimmed)
+    }
+}
+
 /// A source of web results. Implementations must be cancellation-agnostic
 /// and fast-failing (bounded by their own per-request timeouts).
 #[async_trait]

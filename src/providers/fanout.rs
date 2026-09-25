@@ -1,8 +1,14 @@
-//! Parallel fanout across providers: fair merge, URL dedup, error preference.
+//! Parallel fanout across providers: fair merge, URL dedup, full visibility.
+//!
+//! The fanout never silently hides a provider failure: every configured
+//! engine is reported in [`SearchOutcome::providers`], with a typed
+//! [`ProviderStatus`], and any degradation surfaces in [`SearchOutcome::warnings`].
+//! When every provider rate-limited, the search is upgraded to
+//! [`ArgosError::AllProvidersRateLimited`] so the agent knows the empty
+//! result came from anti-bot pressure, not from a genuinely empty topic.
 
 use std::collections::HashSet;
 
-use flojo_mcp::async_trait::async_trait;
 use futures::future::join_all;
 
 use crate::config::Config;
@@ -12,11 +18,11 @@ use crate::providers::bing::BingProvider;
 use crate::providers::brave::BraveProvider;
 use crate::providers::duckduckgo::DuckDuckGoProvider;
 use crate::providers::searxng::SearxNgProvider;
-use crate::types::{ProviderHealth, SearchResult};
+use crate::types::{ProviderEntry, ProviderHealth, ProviderStatus, SearchOutcome, SearchResult};
 
 /// Fanout over the configured providers: queries all in parallel, merges
-/// results round-robin (fair mix), deduplicates by URL and fails over -
-/// if every provider fails, the most actionable error wins (rate-limit first).
+/// results round-robin (fair mix), deduplicates by URL and reports the
+/// per-provider outcome in the [`SearchOutcome`].
 pub struct Fanout {
     providers: Vec<(String, Box<dyn SearchProvider>)>,
 }
@@ -24,7 +30,7 @@ pub struct Fanout {
 impl Fanout {
     /// Build the fanout from configuration. Unknown names are ignored (the
     /// `status` tool shows the effective set); an empty result falls back to
-    /// the default keyless pair so searches can never silently do nothing.
+    /// the default keyless trio so searches can never silently do nothing.
     pub fn from_config(config: &Config) -> Self {
         let mut providers: Vec<(String, Box<dyn SearchProvider>)> = Vec::new();
         let mut seen: HashSet<&str> = HashSet::new();
@@ -71,6 +77,125 @@ impl Fanout {
         }
         health
     }
+
+    /// Fan a single query out to every provider and return the merged view.
+    pub async fn run(
+        &self,
+        query: &str,
+        limit: usize,
+        page: usize,
+    ) -> Result<SearchOutcome, ArgosError> {
+        let outcomes = join_all(
+            self.providers
+                .iter()
+                .map(|(_, provider)| provider.search(query, limit, page)),
+        )
+        .await;
+
+        let per_provider: Vec<(String, Result<Vec<SearchResult>, ArgosError>)> = self
+            .providers
+            .iter()
+            .zip(outcomes)
+            .map(|((name, _), outcome)| (name.clone(), outcome))
+            .collect();
+
+        // All providers failed: dedicated error when every cause is rate-limit,
+        // otherwise prefer the most actionable individual error.
+        let errors: Vec<(String, ArgosError)> = per_provider
+            .iter()
+            .filter_map(|(name, outcome)| {
+                outcome
+                    .as_ref()
+                    .err()
+                    .cloned()
+                    .map(|err| (name.clone(), err))
+            })
+            .collect();
+        if errors.len() == per_provider.len() {
+            let all_rate_limited: Vec<(String, u16)> = errors
+                .iter()
+                .filter_map(|(name, err)| match err {
+                    ArgosError::RateLimited { status, .. } => Some((name.clone(), *status)),
+                    _ => None,
+                })
+                .collect();
+            if all_rate_limited.len() == errors.len() {
+                return Err(ArgosError::AllProvidersRateLimited {
+                    providers: all_rate_limited,
+                });
+            }
+            let mut sorted = errors;
+            sorted.sort_by_key(|(_, err)| match err {
+                ArgosError::RateLimited { .. } => 0,
+                _ => 1,
+            });
+            return Err(sorted
+                .into_iter()
+                .map(|(_, err)| err)
+                .next()
+                .unwrap_or_else(|| ArgosError::InvalidQuery("no providers configured".into())));
+        }
+
+        // At least one provider answered. Merge fairly, dedup by URL, and
+        // surface every provider's status (even the broken ones).
+        let per_provider_views: Vec<(String, &[SearchResult], Option<&ArgosError>)> = per_provider
+            .iter()
+            .map(|(name, outcome)| match outcome {
+                Ok(results) => (name.clone(), results.as_slice(), None),
+                Err(error) => (name.clone(), &[] as &[SearchResult], Some(error)),
+            })
+            .collect();
+
+        let mut merged: Vec<SearchResult> = Vec::new();
+        let mut seen: HashSet<String> = HashSet::new();
+        let depth = per_provider_views
+            .iter()
+            .map(|(_, results, _)| results.len())
+            .max()
+            .unwrap_or(0);
+        'merge: for rank in 0..depth {
+            for (_, results, _) in &per_provider_views {
+                if let Some(result) = results.get(rank)
+                    && seen.insert(normalize_url(&result.url))
+                {
+                    merged.push(result.clone());
+                    if merged.len() >= limit {
+                        break 'merge;
+                    }
+                }
+            }
+        }
+
+        let mut providers = Vec::new();
+        let mut warnings = Vec::new();
+        for (name, results, error) in per_provider_views {
+            let status = match error {
+                Some(ArgosError::RateLimited { status, .. }) => {
+                    ProviderStatus::RateLimited { status: *status }
+                }
+                Some(ArgosError::Unreachable { origin, cause }) => ProviderStatus::Unreachable {
+                    message: format!("{origin}: {cause}"),
+                },
+                Some(other) => ProviderStatus::Unreachable {
+                    message: other.to_string(),
+                },
+                None if results.is_empty() => ProviderStatus::Empty,
+                None => ProviderStatus::Ok {
+                    count: results.len(),
+                },
+            };
+            if let Some(warning) = warnings_for(&name, &status) {
+                warnings.push(warning);
+            }
+            providers.push(ProviderEntry { name, status });
+        }
+
+        Ok(SearchOutcome {
+            results: merged,
+            providers,
+            warnings,
+        })
+    }
 }
 
 /// Dedup key: scheme, `www.` and trailing slash differences must not split a hit.
@@ -83,89 +208,25 @@ fn normalize_url(url: &str) -> String {
         .to_string()
 }
 
-#[async_trait]
-impl SearchProvider for Fanout {
-    async fn search(
-        &self,
-        query: &str,
-        limit: usize,
-        page: usize,
-    ) -> Result<Vec<SearchResult>, ArgosError> {
-        let outcomes = join_all(
-            self.providers
-                .iter()
-                .map(|(_, provider)| provider.search(query, limit, page)),
-        )
-        .await;
-
-        let mut per_provider: Vec<Vec<SearchResult>> = Vec::new();
-        let mut errors: Vec<ArgosError> = Vec::new();
-        for outcome in outcomes {
-            match outcome {
-                Ok(results) => per_provider.push(results),
-                Err(error) => errors.push(error),
-            }
-        }
-
-        if per_provider.is_empty() {
-            // Every provider failed: surface the most actionable error first
-            // (a rate-limit explains what happened better than a timeout).
-            errors.sort_by_key(|error| match error {
-                ArgosError::RateLimited { .. } => 0,
-                _ => 1,
-            });
-            return Err(errors
-                .into_iter()
-                .next()
-                .unwrap_or_else(|| ArgosError::InvalidQuery("no providers configured".into())));
-        }
-
-        // Fair interleave: rank i of every provider before rank i+1 of any,
-        // deduplicating by normalized URL, until the limit is reached.
-        let mut merged: Vec<SearchResult> = Vec::new();
-        let mut seen: HashSet<String> = HashSet::new();
-        let depth = per_provider.iter().map(Vec::len).max().unwrap_or(0);
-        'merge: for rank in 0..depth {
-            for results in &per_provider {
-                if let Some(result) = results.get(rank)
-                    && seen.insert(normalize_url(&result.url))
-                {
-                    merged.push(result.clone());
-                    if merged.len() >= limit {
-                        break 'merge;
-                    }
-                }
-            }
-        }
-        Ok(merged)
-    }
-
-    async fn health(&self) -> bool {
-        for (_, provider) in &self.providers {
-            if provider.health().await {
-                return true;
-            }
-        }
-        false
+/// Render the human-readable warning for a degraded provider status.
+fn warnings_for(name: &str, status: &ProviderStatus) -> Option<String> {
+    match status {
+        ProviderStatus::RateLimited { status: code } => Some(format!(
+            "{name}: rate-limited (HTTP {code}); back off or rotate ARGOS_PROVIDERS"
+        )),
+        ProviderStatus::Unreachable { message } => Some(format!("{name}: unreachable ({message})")),
+        ProviderStatus::Ok { .. } | ProviderStatus::Empty => None,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use flojo_mcp::async_trait::async_trait;
 
     struct Stub {
         results: Vec<SearchResult>,
         error: Option<ArgosError>,
-    }
-
-    fn result(url: &str, title: &str, engine: &str) -> SearchResult {
-        SearchResult {
-            url: url.into(),
-            title: title.into(),
-            snippet: "s".into(),
-            engine: Some(engine.into()),
-        }
     }
 
     #[async_trait]
@@ -187,6 +248,16 @@ mod tests {
         }
     }
 
+    fn result(url: &str, title: &str, engine: &str) -> SearchResult {
+        SearchResult {
+            source: crate::providers::compact_source(url),
+            url: url.into(),
+            title: title.into(),
+            snippet: "s".into(),
+            engine: Some(engine.into()),
+        }
+    }
+
     fn fanout(stubs: Vec<(&str, Stub)>) -> Fanout {
         Fanout {
             providers: stubs
@@ -194,6 +265,14 @@ mod tests {
                 .map(|(name, stub)| (name.to_string(), Box::new(stub) as Box<dyn SearchProvider>))
                 .collect(),
         }
+    }
+
+    fn status_of<'a>(outcome: &'a SearchOutcome, name: &str) -> Option<&'a ProviderStatus> {
+        outcome
+            .providers
+            .iter()
+            .find(|entry| entry.name == name)
+            .map(|entry| &entry.status)
     }
 
     #[tokio::test]
@@ -221,15 +300,26 @@ mod tests {
                 },
             ),
         ]);
-
-        let merged = fanout.search("q", 10, 1).await.expect("ok");
+        let outcome = fanout.run("q", 10, 1).await.expect("ok");
         // Dedup normalizes scheme/www/trailing-slash, so the www-variant dup dies:
-        assert_eq!(merged.len(), 3, "normalized dup must be dropped");
+        assert_eq!(outcome.results.len(), 3, "normalized dup must be dropped");
         assert_eq!(
-            merged.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(),
+            outcome
+                .results
+                .iter()
+                .map(|r| r.title.as_str())
+                .collect::<Vec<_>>(),
             vec!["one", "two", "three"],
             "fair interleave: rank0 of a, rank1 of a..., dup removed"
         );
+        assert!(matches!(
+            status_of(&outcome, "a"),
+            Some(ProviderStatus::Ok { count: 2 })
+        ));
+        assert!(matches!(
+            status_of(&outcome, "b"),
+            Some(ProviderStatus::Ok { count: 2 })
+        ));
     }
 
     #[tokio::test]
@@ -254,12 +344,12 @@ mod tests {
                 },
             ),
         ]);
-        let merged = fanout.search("q", 2, 1).await.expect("ok");
-        assert_eq!(merged.len(), 2);
+        let outcome = fanout.run("q", 2, 1).await.expect("ok");
+        assert_eq!(outcome.results.len(), 2);
     }
 
     #[tokio::test]
-    async fn all_failed_prefers_rate_limit_error() {
+    async fn prefers_rate_limit_error_when_all_failed_with_mixed_causes() {
         let fanout = fanout(vec![
             (
                 "timeouty",
@@ -282,11 +372,109 @@ mod tests {
                 },
             ),
         ]);
-        let error = fanout.search("q", 5, 1).await.expect_err("must fail");
+        let error = fanout.run("q", 5, 1).await.expect_err("must fail");
         assert!(
             matches!(error, ArgosError::RateLimited { .. }),
             "rate-limit explains the failure better than a timeout, got: {error}"
         );
         assert!(error.to_string().contains("rate-limited"));
+    }
+
+    #[tokio::test]
+    async fn all_rate_limited_promotes_to_dedicated_error() {
+        let fanout = fanout(vec![
+            (
+                "ddg",
+                Stub {
+                    results: vec![],
+                    error: Some(ArgosError::RateLimited {
+                        engine: "ddg".into(),
+                        status: 202,
+                    }),
+                },
+            ),
+            (
+                "bing",
+                Stub {
+                    results: vec![],
+                    error: Some(ArgosError::RateLimited {
+                        engine: "bing".into(),
+                        status: 429,
+                    }),
+                },
+            ),
+        ]);
+        let error = fanout.run("q", 5, 1).await.expect_err("must fail");
+        match error {
+            ArgosError::AllProvidersRateLimited { providers } => {
+                assert_eq!(providers.len(), 2);
+                let names: Vec<&str> = providers.iter().map(|(n, _)| n.as_str()).collect();
+                assert!(names.contains(&"ddg"));
+                assert!(names.contains(&"bing"));
+            }
+            other => panic!("expected AllProvidersRateLimited, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn partial_failure_surfaces_in_providers_and_warnings() {
+        let fanout = fanout(vec![
+            (
+                "ddg",
+                Stub {
+                    results: vec![result("https://ok.test/x", "ok", "ddg")],
+                    error: None,
+                },
+            ),
+            (
+                "brave",
+                Stub {
+                    results: vec![],
+                    error: Some(ArgosError::RateLimited {
+                        engine: "brave".into(),
+                        status: 429,
+                    }),
+                },
+            ),
+        ]);
+        let outcome = fanout.run("q", 10, 1).await.expect("ok");
+        assert_eq!(outcome.results.len(), 1);
+        assert!(matches!(
+            status_of(&outcome, "ddg"),
+            Some(ProviderStatus::Ok { count: 1 })
+        ));
+        assert!(matches!(
+            status_of(&outcome, "brave"),
+            Some(ProviderStatus::RateLimited { status: 429 })
+        ));
+        assert_eq!(outcome.warnings.len(), 1);
+        assert!(outcome.warnings[0].contains("brave"));
+    }
+
+    #[tokio::test]
+    async fn empty_from_all_succeeds_returns_empty_outcome() {
+        let fanout = fanout(vec![
+            (
+                "ddg",
+                Stub {
+                    results: vec![],
+                    error: None,
+                },
+            ),
+            (
+                "bing",
+                Stub {
+                    results: vec![],
+                    error: None,
+                },
+            ),
+        ]);
+        let outcome = fanout.run("q", 10, 1).await.expect("ok");
+        assert!(outcome.results.is_empty());
+        assert!(outcome.warnings.is_empty());
+        assert!(matches!(
+            status_of(&outcome, "ddg"),
+            Some(ProviderStatus::Empty)
+        ));
     }
 }
