@@ -4,6 +4,9 @@ All notable Argos Engine changes are recorded here.
 
 ## Unreleased
 
+- Planned M1.2 Native Metasearch Engine: provider registry, profiles, index-family diversity, circuit breaker, quota/cooldown state, RRF fusion and compact token-aware output.
+- Added `PROVIDERS.md` as the categorized source of truth for 30 candidate adapters, prioritizing keyless/public APIs before user-key free tiers, paid providers and experimental HTML endpoints.
+
 ## 0.2.1 — provider quality gate
 
 - Audited DuckDuckGo, Bing and Brave with a reproducible live matrix; findings are recorded in [PROVIDER_AUDIT.md](PROVIDER_AUDIT.md).

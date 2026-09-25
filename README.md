@@ -132,9 +132,11 @@ The full matrix and policy notes are in [PROVIDER_AUDIT.md](PROVIDER_AUDIT.md). 
 
 1. **M1** — keyless fanout (DDG + Bing + Brave, primp impersonation), dedup, typed errors, fixtures, per-provider outcome and validated `domains` scoping ← *current*
 2. **M1.1** — provider quality gates, result-side scope enforcement and `NoUsableResults`; see [PROVIDER_AUDIT.md](PROVIDER_AUDIT.md) ← *current*
-3. **M1.2** — demote or explicitly opt in direct HTML providers based on the audit; add backoff/circuit state
-4. **M2** — `research` tool: multi-query fan-out with reformulation, optional source allowlist, progress + cancellation, compact digest (ChatGPT/Qwen deep-research style)
-5. **M3** — content extraction (Rust readability, no XPath) and optional structured remote providers behind the same trait
+3. **M1.2** — Native Metasearch Engine: provider registry, profiles, index-family diversity, circuit breaker, quota/cooldown state, RRF fusion and compact token-aware output; see [PROVIDERS.md](PROVIDERS.md) ← *current*
+4. **M1.3** — keyless and public API adapters (academic, code, news and local verticals)
+5. **M1.4** — user-key/free-tier adapters, with provider-owned keys and quotas
+6. **M2** — `research` tool: multi-query fan-out with reformulation, optional source allowlist, progress + cancellation, compact digest (ChatGPT/Qwen deep-research style)
+7. **M3** — content extraction (Rust readability, no XPath) and optional structured remote providers behind the same trait
 
 Decisions and progress live in [AGENTS.md](./AGENTS.md).
 
