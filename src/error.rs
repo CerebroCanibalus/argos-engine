@@ -47,6 +47,16 @@ pub enum ArgosError {
         providers: Vec<(String, u16)>,
     },
 
+    /// Providers answered, but every result was rejected by the requested
+    /// domain or lexical relevance gate.
+    #[error("providers returned no usable results after quality filtering")]
+    NoUsableResults {
+        /// Number of raw organic results received before filtering.
+        returned: usize,
+        /// Number of raw results rejected by the quality gates.
+        rejected: usize,
+    },
+
     /// SearXNG answered with a non-200 status.
     #[error("SearXNG returned HTTP {status}")]
     Http {
@@ -100,6 +110,11 @@ impl From<ArgosError> for ToolError {
                     "name": name,
                     "status": status,
                 })).collect::<Vec<_>>(),
+            })),
+            ArgosError::NoUsableResults { returned, rejected } => tool_error.with_data(json!({
+                "hint": "Providers answered, but no result passed Argos' domain or lexical relevance gate. Inspect the query, narrow the domains, or use another research formulation.",
+                "returned": returned,
+                "rejected": rejected,
             })),
             ArgosError::Http { hint, .. } => tool_error.with_data(json!({ "hint": hint })),
             ArgosError::StackBoot { .. } => tool_error.with_data(json!({
@@ -191,6 +206,26 @@ mod tests {
         );
         let listed = payload["providers"].as_array().expect("providers array");
         assert_eq!(listed.len(), 2);
+    }
+
+    #[test]
+    fn no_usable_results_explains_quality_filtering() {
+        let error: ToolError = ArgosError::NoUsableResults {
+            returned: 10,
+            rejected: 10,
+        }
+        .into();
+        let data = error.to_error_data();
+        assert!(data.message.contains("no usable results"));
+        let payload = data.data.expect("quality payload");
+        assert_eq!(payload["returned"], 10);
+        assert_eq!(payload["rejected"], 10);
+        assert!(
+            payload["hint"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("domain")
+        );
     }
 
     #[test]

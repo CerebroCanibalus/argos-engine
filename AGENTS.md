@@ -18,6 +18,8 @@ Memoria viva del proyecto (flujo universal de fases: 0 inicialización → 1 fun
 - **Transporte = el discriminante real** (medido2026-09-24): reqwest puro (rustls **y** schannel/native-tls) → Bing **302 a homepage** (mismo header set y HTTP/1.1 que curl, que sí pasaba → delta = ClientHello/JA3), Brave **429**, Mojeek CAPTCHA; PowerShell → DDG403. **primp `Impersonate::ChromeV153` + `ImpersonateOS::Windows` → DDG/Bing/Brave todos200 con resultados reales**; Mojeek sigue CAPTCHA (bloqueo IP/consent, no TLS). `rust-version` subido a **1.89** (piso de primp). `aws-lc-sys` compila OK con VS18 (cmake crate).
 - ddgs marca `provider="bing"` en DuckDuckGo → DDG y Bing comparten índice pero son **presupuestos anti-bot independientes**; **Brave aporta índice INDEPENDIENTE** (crawler propio) → diversidad real +3º presupuesto.
 - **Lección**: el techo se sube con diseño (fanout paralelo + dedup + pacing + cache), no con un backend mágico.
+- **Auditoría de providers (medida 2026-09-24, `PROVIDER_AUDIT.md`)**: DDG y Brave acertaron 10/10 en la primera query de nicho, pero 202/429 en las siguientes; Bing devolvió HTML/SERP real pero basura semántica (`free piano VST` → juegos, `Spitfire Audio LABS free` → Macao) y noApplyó `site:` de forma fiable. Tavily/Firecrawl keyless remote dio JSON relevante, pero no son índices locales. **Decisión provisional**: no añadir más HTML providers; Bing/Brave son compatibilidad experimental hasta decidir demotion/opt-in; no evasión de anti-bot.
+- **Calidad result-side (v0.2.1)**: `src/quality.rs` valida `domains`, fuerza scope exacto/subdominio y filtra deriva obvious por términos(query); `Fanout` marca `filtered`, cuenta warnings y devuelve `NoUsableResults` cuando todos los providers fallan el gate. El status `ok` ya no significa “cualquier HTML 200”.
 
 ## Anti-objetivos (los problemas del MCP Python que NO repetir)
 
@@ -54,13 +56,15 @@ src/
   types.rs       SearchResult, Status, ProviderHealth (contratos con derives)
   limits.rs      presupuestos de TOKENS: TITLE_MAX=200, SNIPPET_MAX=300, clamps limit/page
   stack.rs       ciclo de vida WSL2 on-demand (sólo adapter SearXNG): ensure_up/note_usage/watchdog
+  quality.rs      normaliza domains, scope exacto/subdominio, construye query site: y filtro léxico conservador
   providers/
     mod.rs       trait SearchProvider {search,health} + impersonated_client() (primp ChromeV153/Windows,
                  timeout desde Config al primer uso) + impersonated_health_client() (3s, no cuelga status)
                  + compact_source(url) → host sin scheme/www/path (truncado)
-    fanout.rs    Fanout::run: join_all en paralelo, merge round-robin, dedup por URL normalizada;
+    fanout.rs    Fanout::run: join_all en paralelo, quality gate result-side, merge round-robin, dedup por URL;
                  construye SearchOutcome {results, providers, warnings} reflejando el estado real de
-                 cada provider (incluidos los degradados); TODOS rate-limited → AllProvidersRateLimited
+                 cada provider (incluidos degradados/filtered); TODOS rate-limited → AllProvidersRateLimited;
+                 todos los resultados filtered/irrelevantes → NoUsableResults
     duckduckgo.rs POST html/ (params ddgs: q,b,l + s=10+(page-2)*15); parse div.result → a.result__a/
                  a.result__snippet; filtra /y.js; unwrap //duckduckgo.com/l/?uddg= (percent-decode)
     bing.rs      GET /search (q,pq,cc + first vía .query); parse li.b_algo → h2 a + p; filtra aclick;

@@ -18,7 +18,16 @@ use crate::providers::bing::BingProvider;
 use crate::providers::brave::BraveProvider;
 use crate::providers::duckduckgo::DuckDuckGoProvider;
 use crate::providers::searxng::SearxNgProvider;
+use crate::quality;
 use crate::types::{ProviderEntry, ProviderHealth, ProviderStatus, SearchOutcome, SearchResult};
+
+struct ProviderView<'a> {
+    name: String,
+    results: Vec<SearchResult>,
+    error: Option<&'a ArgosError>,
+    returned: usize,
+    rejected: usize,
+}
 
 /// Fanout over the configured providers: queries all in parallel, merges
 /// results round-robin (fair mix), deduplicates by URL and reports the
@@ -81,14 +90,16 @@ impl Fanout {
     /// Fan a single query out to every provider and return the merged view.
     pub async fn run(
         &self,
-        query: &str,
+        provider_query: &str,
+        relevance_query: &str,
         limit: usize,
         page: usize,
+        domains: &[String],
     ) -> Result<SearchOutcome, ArgosError> {
         let outcomes = join_all(
             self.providers
                 .iter()
-                .map(|(_, provider)| provider.search(query, limit, page)),
+                .map(|(_, provider)| provider.search(provider_query, limit, page)),
         )
         .await;
 
@@ -136,13 +147,44 @@ impl Fanout {
                 .unwrap_or_else(|| ArgosError::InvalidQuery("no providers configured".into())));
         }
 
-        // At least one provider answered. Merge fairly, dedup by URL, and
-        // surface every provider's status (even the broken ones).
-        let per_provider_views: Vec<(String, &[SearchResult], Option<&ArgosError>)> = per_provider
+        // At least one provider answered. Apply Argos' result-side quality
+        // gates before merging: an upstream HTML page is not trusted merely
+        // because it returned HTTP 200.
+        let mut total_returned = 0;
+        let mut total_rejected = 0;
+        let per_provider_views: Vec<ProviderView<'_>> = per_provider
             .iter()
             .map(|(name, outcome)| match outcome {
-                Ok(results) => (name.clone(), results.as_slice(), None),
-                Err(error) => (name.clone(), &[] as &[SearchResult], Some(error)),
+                Err(error) => ProviderView {
+                    name: name.clone(),
+                    results: Vec::new(),
+                    error: Some(error),
+                    returned: 0,
+                    rejected: 0,
+                },
+                Ok(results) => {
+                    let returned = results.len();
+                    let mut accepted = Vec::with_capacity(returned);
+                    let mut rejected = 0;
+                    for result in results {
+                        let in_scope = quality::matches_domains(&result.url, domains);
+                        let relevant = quality::is_relevant(relevance_query, result);
+                        if in_scope && relevant {
+                            accepted.push(result.clone());
+                        } else {
+                            rejected += 1;
+                        }
+                    }
+                    total_returned += returned;
+                    total_rejected += rejected;
+                    ProviderView {
+                        name: name.clone(),
+                        results: accepted,
+                        error: None,
+                        returned,
+                        rejected,
+                    }
+                }
             })
             .collect();
 
@@ -150,12 +192,12 @@ impl Fanout {
         let mut seen: HashSet<String> = HashSet::new();
         let depth = per_provider_views
             .iter()
-            .map(|(_, results, _)| results.len())
+            .map(|view| view.results.len())
             .max()
             .unwrap_or(0);
         'merge: for rank in 0..depth {
-            for (_, results, _) in &per_provider_views {
-                if let Some(result) = results.get(rank)
+            for view in &per_provider_views {
+                if let Some(result) = view.results.get(rank)
                     && seen.insert(normalize_url(&result.url))
                 {
                     merged.push(result.clone());
@@ -168,7 +210,14 @@ impl Fanout {
 
         let mut providers = Vec::new();
         let mut warnings = Vec::new();
-        for (name, results, error) in per_provider_views {
+        for ProviderView {
+            name,
+            results,
+            error,
+            returned,
+            rejected,
+        } in per_provider_views
+        {
             let status = match error {
                 Some(ArgosError::RateLimited { status, .. }) => {
                     ProviderStatus::RateLimited { status: *status }
@@ -179,7 +228,8 @@ impl Fanout {
                 Some(other) => ProviderStatus::Unreachable {
                     message: other.to_string(),
                 },
-                None if results.is_empty() => ProviderStatus::Empty,
+                None if results.is_empty() && rejected == 0 => ProviderStatus::Empty,
+                None if results.is_empty() => ProviderStatus::Filtered { returned },
                 None => ProviderStatus::Ok {
                     count: results.len(),
                 },
@@ -187,7 +237,19 @@ impl Fanout {
             if let Some(warning) = warnings_for(&name, &status) {
                 warnings.push(warning);
             }
+            if rejected > 0 && !matches!(status, ProviderStatus::Filtered { .. }) {
+                warnings.push(format!(
+                    "{name}: filtered {rejected} result(s) outside the requested domain or query terms"
+                ));
+            }
             providers.push(ProviderEntry { name, status });
+        }
+
+        if merged.is_empty() {
+            return Err(ArgosError::NoUsableResults {
+                returned: total_returned,
+                rejected: total_rejected,
+            });
         }
 
         Ok(SearchOutcome {
@@ -213,6 +275,9 @@ fn warnings_for(name: &str, status: &ProviderStatus) -> Option<String> {
     match status {
         ProviderStatus::RateLimited { status: code } => Some(format!(
             "{name}: rate-limited (HTTP {code}); back off or rotate ARGOS_PROVIDERS"
+        )),
+        ProviderStatus::Filtered { returned } => Some(format!(
+            "{name}: returned {returned} result(s), but none passed Argos' domain/relevance gate"
         )),
         ProviderStatus::Unreachable { message } => Some(format!("{name}: unreachable ({message})")),
         ProviderStatus::Ok { .. } | ProviderStatus::Empty => None,
@@ -300,7 +365,7 @@ mod tests {
                 },
             ),
         ]);
-        let outcome = fanout.run("q", 10, 1).await.expect("ok");
+        let outcome = fanout.run("q", "q", 10, 1, &[]).await.expect("ok");
         // Dedup normalizes scheme/www/trailing-slash, so the www-variant dup dies:
         assert_eq!(outcome.results.len(), 3, "normalized dup must be dropped");
         assert_eq!(
@@ -344,7 +409,7 @@ mod tests {
                 },
             ),
         ]);
-        let outcome = fanout.run("q", 2, 1).await.expect("ok");
+        let outcome = fanout.run("q", "q", 2, 1, &[]).await.expect("ok");
         assert_eq!(outcome.results.len(), 2);
     }
 
@@ -372,7 +437,10 @@ mod tests {
                 },
             ),
         ]);
-        let error = fanout.run("q", 5, 1).await.expect_err("must fail");
+        let error = fanout
+            .run("q", "q", 5, 1, &[])
+            .await
+            .expect_err("must fail");
         assert!(
             matches!(error, ArgosError::RateLimited { .. }),
             "rate-limit explains the failure better than a timeout, got: {error}"
@@ -404,7 +472,10 @@ mod tests {
                 },
             ),
         ]);
-        let error = fanout.run("q", 5, 1).await.expect_err("must fail");
+        let error = fanout
+            .run("q", "q", 5, 1, &[])
+            .await
+            .expect_err("must fail");
         match error {
             ArgosError::AllProvidersRateLimited { providers } => {
                 assert_eq!(providers.len(), 2);
@@ -437,7 +508,7 @@ mod tests {
                 },
             ),
         ]);
-        let outcome = fanout.run("q", 10, 1).await.expect("ok");
+        let outcome = fanout.run("q", "q", 10, 1, &[]).await.expect("ok");
         assert_eq!(outcome.results.len(), 1);
         assert!(matches!(
             status_of(&outcome, "ddg"),
@@ -452,7 +523,68 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn empty_from_all_succeeds_returns_empty_outcome() {
+    async fn filters_results_outside_requested_domains() {
+        let fanout = fanout(vec![(
+            "bing",
+            Stub {
+                results: vec![
+                    result("https://reddit.com/r/piano", "Piano VST", "bing"),
+                    result("https://youtube.com/watch?v=1", "Piano VST", "bing"),
+                ],
+                error: None,
+            },
+        )]);
+        let outcome = fanout
+            .run(
+                "piano VST (site:reddit.com)",
+                "piano VST",
+                10,
+                1,
+                &["reddit.com".into()],
+            )
+            .await
+            .expect("usable result");
+        assert_eq!(outcome.results.len(), 1);
+        assert!(matches!(
+            status_of(&outcome, "bing"),
+            Some(ProviderStatus::Ok { count: 1 })
+        ));
+        assert!(
+            outcome
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("filtered 1"))
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_entity_drift_instead_of_returning_garbage() {
+        let fanout = fanout(vec![(
+            "bing",
+            Stub {
+                results: vec![result(
+                    "https://tripadvisor.com/Macao",
+                    "Macao travel guide",
+                    "bing",
+                )],
+                error: None,
+            },
+        )]);
+        let error = fanout
+            .run(
+                "Spitfire Audio LABS free",
+                "Spitfire Audio LABS free",
+                10,
+                1,
+                &[],
+            )
+            .await
+            .expect_err("entity drift must not be returned");
+        assert!(matches!(error, ArgosError::NoUsableResults { .. }));
+    }
+
+    #[tokio::test]
+    async fn empty_from_all_succeeds_is_not_reported_as_success() {
         let fanout = fanout(vec![
             (
                 "ddg",
@@ -469,12 +601,16 @@ mod tests {
                 },
             ),
         ]);
-        let outcome = fanout.run("q", 10, 1).await.expect("ok");
-        assert!(outcome.results.is_empty());
-        assert!(outcome.warnings.is_empty());
+        let error = fanout
+            .run("q", "q", 10, 1, &[])
+            .await
+            .expect_err("empty upstream set must be typed");
         assert!(matches!(
-            status_of(&outcome, "ddg"),
-            Some(ProviderStatus::Empty)
+            error,
+            ArgosError::NoUsableResults {
+                returned: 0,
+                rejected: 0
+            }
         ));
     }
 }

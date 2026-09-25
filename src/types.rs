@@ -51,10 +51,13 @@ pub struct ProviderEntry {
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProviderStatus {
-    /// Provider returned this many results.
+    /// Provider returned this many usable results.
     Ok { count: usize },
     /// Provider answered with HTTP200 but yielded no organic results.
     Empty,
+    /// Provider returned results, but all of them failed Argos' domain or
+    /// relevance quality gate.
+    Filtered { returned: usize },
     /// Provider returned an anti-bot rate-limit response.
     RateLimited { status: u16 },
     /// Provider could not be reached (transport error, timeout, ...).

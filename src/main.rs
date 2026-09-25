@@ -7,13 +7,14 @@ mod config;
 mod error;
 mod limits;
 mod providers;
+mod quality;
 mod stack;
 mod tools;
 mod types;
 
 use flojo_mcp::prelude::*;
 
-#[flojo_mcp(name = "argos-engine", version = "0.1.0")]
+#[flojo_mcp(name = "argos-engine", version = "0.2.1")]
 struct ArgosEngine;
 
 #[tokio::main]
@@ -42,6 +43,21 @@ mod tests {
         let tester = FlojoTester::new(ArgosEngine::new());
         let result = tester.call("search", json!({"query": "   "})).await;
         assert!(result.is_err(), "empty query must be rejected");
+    }
+
+    #[tokio::test]
+    async fn search_rejects_malformed_domains_before_network() {
+        let tester = FlojoTester::new(ArgosEngine::new());
+        let result = tester
+            .call(
+                "search",
+                json!({
+                    "query": "piano VST",
+                    "domains": ["example.com) OR (site:other.test"]
+                }),
+            )
+            .await;
+        assert!(result.is_err(), "query syntax in domains must be rejected");
     }
 
     #[tokio::test]
