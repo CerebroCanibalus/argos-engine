@@ -10,6 +10,7 @@ use crate::error::ArgosError;
 use crate::limits::{SNIPPET_MAX_CHARS, TITLE_MAX_CHARS};
 use crate::providers::{
     SearchProvider, compact_source, impersonated_client, impersonated_health_client,
+    parse_retry_after,
 };
 use crate::types::SearchResult;
 
@@ -139,9 +140,15 @@ impl SearchProvider for BingProvider {
             }
             //429/403 observed under automated load - classic anti-bot answers.
             status @ (StatusCode::FORBIDDEN | StatusCode::TOO_MANY_REQUESTS) => {
+                let retry_after_secs = response
+                    .headers()
+                    .get("retry-after")
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(parse_retry_after);
                 Err(ArgosError::RateLimited {
                     engine: ENGINE.into(),
                     status: status.as_u16(),
+                    retry_after_secs,
                 })
             }
             status => Err(ArgosError::Unreachable {

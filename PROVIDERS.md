@@ -53,7 +53,7 @@ real de cada provider.
 
 | # | Adapter | Categoría | Auth | Política | Notas |
 |---:|---|---|---|---|---|
-| 18 | `openalex` | Academic | key opcional | `P1_PUBLIC_API` | Papers, DOI, abstracts, citas, OA |
+| 18 | `openalex` | Academic | key opcional | `P1_PUBLIC_API` | **implementado v0.4.0**. Papers, DOI, abstracts (�ndice invertido reconstruido), citas |
 | 19 | `semantic_scholar` | Academic | key opcional | `P1_PUBLIC_API` | Discovery, citations, papers relacionados |
 | 20 | `crossref` | Academic metadata | ninguna | `P1_PUBLIC_API` | DOI y metadata canónica |
 | 21 | `europe_pmc` | Biomed/life sciences | ninguna | `P1_VERTICAL` | REST/OAI/full-text parcial |

@@ -7,6 +7,7 @@
 
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -17,6 +18,32 @@ use crate::types::{ProviderEntry, ProviderStatus, SearchOutcome};
 
 /// Runtime state shared by router instances within one process.
 pub type SharedProviderStates = Arc<Mutex<HashMap<String, ProviderState>>>;
+
+/// Process-local cache of successful searches, plus per-key locks so concurrent
+/// identical queries share one upstream request instead of stampeding.
+type SharedSearchCache = Arc<Mutex<HashMap<CacheKey, CacheEntry>>>;
+type SharedSearchLocks = Arc<Mutex<HashMap<CacheKey, Arc<tokio::sync::Mutex<()>>>>>;
+
+/// Short enough to be invisible to the agent, long enough to absorb the
+/// duplicate calls a tool-using loop makes while reformulating one question.
+const SEARCH_CACHE_TTL: Duration = Duration::from_secs(60);
+const SEARCH_CACHE_CAPACITY: usize = 256;
+
+/// Every field that changes the result set must be part of the key.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct CacheKey {
+    profile: String,
+    query: String,
+    limit: usize,
+    page: usize,
+    domains: Vec<String>,
+}
+
+struct CacheEntry {
+    outcome: SearchOutcome,
+    expires_at: Instant,
+    sequence: u64,
+}
 
 /// The broad provider categories used by profiles and benchmarks.
 /// Additional variants are reserved for the M1.3 adapter wave.
@@ -174,10 +201,22 @@ impl ProviderState {
     }
 
     /// Record an anti-bot/rate-limit answer and open its circuit.
-    pub fn record_rate_limited_at(&mut self, now: Instant, status: u16) {
+    ///
+    /// When the server advertises a delay we honour it exactly instead of applying
+    /// the conservative local default, so a polite `Retry-After: 11` does not cost
+    /// the provider three minutes of availability.
+    pub fn record_rate_limited_at(
+        &mut self,
+        now: Instant,
+        status: u16,
+        retry_after_secs: Option<u64>,
+    ) {
         self.consecutive_failures = self.consecutive_failures.saturating_add(1);
         self.status = ProviderRuntimeStatus::Cooldown;
-        self.cooldown_until = Some(now + RATE_LIMIT_COOLDOWN);
+        let cooldown_secs = retry_after_secs
+            .unwrap_or(RATE_LIMIT_COOLDOWN.as_secs())
+            .clamp(1, 3600);
+        self.cooldown_until = Some(now + Duration::from_secs(cooldown_secs));
         self.last_status_code = Some(status);
         self.last_quality = Some(0.0);
     }
@@ -207,38 +246,80 @@ pub struct ProviderRegistry {
 }
 
 impl ProviderRegistry {
-    /// Build a registry using the process-wide state shared by MCP calls.
-    pub fn from_config(config: &Config) -> Self {
-        Self::from_config_with_state(config, shared_states())
+    /// Build the `general` registry with injected state (deterministic tests).
+    #[cfg(test)]
+    pub fn from_config_with_state(config: &Config, states: SharedProviderStates) -> Self {
+        Self::for_profile_with_state(config, states, DEFAULT_PROFILE)
+            .expect("the default profile is always a valid registry build")
     }
 
-    /// Build a registry with injected state, useful for deterministic tests.
-    pub fn from_config_with_state(config: &Config, states: SharedProviderStates) -> Self {
+    /// Build the registry for one profile, filtering configured providers by
+    /// the categories that profile serves.
+    pub fn for_profile(config: &Config, profile: &str) -> Result<Self, ArgosError> {
+        Self::for_profile_with_state(config, shared_states(), profile)
+    }
+
+    /// Profile-aware construction with injected state.
+    pub fn for_profile_with_state(
+        config: &Config,
+        states: SharedProviderStates,
+        profile: &str,
+    ) -> Result<Self, ArgosError> {
+        let Some(categories) = profile_categories(profile) else {
+            return Err(ArgosError::InvalidQuery(format!(
+                "unknown profile {profile:?}; available profiles: {}",
+                PROFILE_IDS.join(", ")
+            )));
+        };
         let mut manifests = HashMap::new();
         let mut members = Vec::new();
+        let mut fallback_members = Vec::new();
         for id in &config.providers {
             let Some(manifest) = builtin_manifest(id) else {
                 continue;
             };
-            if manifests.insert(id.clone(), manifest).is_none() {
-                members.push(id.clone());
+            if manifests.insert(id.clone(), manifest.clone()).is_none() {
                 states
                     .lock()
                     .expect("provider state lock")
                     .entry(id.clone())
                     .or_insert_with(ProviderState::new);
+                // Remember every implemented provider so a profile whose
+                // members are all in cooldown can still fall back instead of
+                // reporting "no eligible providers" for a configured set.
+                fallback_members.push(id.clone());
+                if manifest
+                    .categories
+                    .iter()
+                    .any(|category| categories.contains(category))
+                {
+                    members.push(id.clone());
+                }
             }
         }
-        Self {
+        // An empty profile (nothing configured for this category) degrades to
+        // the full configured set rather than silently doing nothing.
+        if members.is_empty() {
+            members = fallback_members;
+        }
+        // Highest measured trust first, so the first wave spends its budget on
+        // the indices most likely to answer.
+        members.sort_by_key(|id| Reverse(manifests.get(id).map(|m| m.priority).unwrap_or(0)));
+        Ok(Self {
             manifests,
             states,
             profile: ProviderProfile {
-                id: "general".into(),
+                id: profile.to_string(),
                 members,
                 max_initial: config.metasearch_initial,
                 max_total: config.metasearch_total,
             },
-        }
+        })
+    }
+
+    /// Identifier of the profile this registry serves.
+    pub fn profile_id(&self) -> &str {
+        &self.profile.id
     }
 
     /// Return the configured, implemented provider IDs in profile order.
@@ -293,12 +374,12 @@ impl ProviderRegistry {
     }
 
     /// Apply a typed all-rate-limited error to shared runtime state.
-    pub fn record_rate_limits(&self, providers: &[(String, u16)]) {
+    pub fn record_rate_limits(&self, providers: &[(String, u16, Option<u64>)]) {
         let now = Instant::now();
         let mut states = self.states.lock().expect("provider state lock");
-        for (id, status) in providers {
+        for (id, status, retry_after_secs) in providers {
             if let Some(state) = states.get_mut(id) {
-                state.record_rate_limited_at(now, *status);
+                state.record_rate_limited_at(now, *status, *retry_after_secs);
             }
         }
     }
@@ -317,8 +398,11 @@ impl ProviderRegistry {
                 ProviderStatus::Empty | ProviderStatus::Filtered { .. } => {
                     state.record_empty_at(now);
                 }
-                ProviderStatus::RateLimited { status } => {
-                    state.record_rate_limited_at(now, *status);
+                ProviderStatus::RateLimited {
+                    status,
+                    retry_after_secs,
+                } => {
+                    state.record_rate_limited_at(now, *status, *retry_after_secs);
                 }
                 ProviderStatus::Unreachable { .. } => {
                     state.record_unreachable_at(now);
@@ -333,13 +417,26 @@ impl ProviderRegistry {
 pub struct MetasearchRouter {
     registry: ProviderRegistry,
     fanout: Fanout,
+    cache: SharedSearchCache,
+    cache_locks: SharedSearchLocks,
 }
 
 impl MetasearchRouter {
-    pub fn from_config(config: &Config) -> Self {
+    /// Build the router for a named profile, rejecting unknown profiles before
+    /// any network access so a typo never burns provider quota.
+    pub fn for_profile(config: &Config, profile: &str) -> Result<Self, ArgosError> {
+        Ok(Self::build(
+            ProviderRegistry::for_profile(config, profile)?,
+            Fanout::from_config(config),
+        ))
+    }
+
+    fn build(registry: ProviderRegistry, fanout: Fanout) -> Self {
         Self {
-            registry: ProviderRegistry::from_config(config),
-            fanout: Fanout::from_config(config),
+            registry,
+            fanout,
+            cache: shared_search_cache(),
+            cache_locks: shared_search_locks(),
         }
     }
 
@@ -351,6 +448,25 @@ impl MetasearchRouter {
         page: usize,
         domains: &[String],
     ) -> Result<SearchOutcome, ArgosError> {
+        let cache_key = CacheKey {
+            profile: self.registry.profile_id().to_string(),
+            query: relevance_query.to_string(),
+            limit,
+            page,
+            domains: domains.to_vec(),
+        };
+        // Single-flight: identical concurrent calls wait for one request
+        // instead of all missing the cache and hammering the same providers.
+        let request_lock = cache_lock(&self.cache_locks, &cache_key);
+        let _request_guard = request_lock.lock().await;
+        if let Some(mut cached) = cache_get(&self.cache, &cache_key) {
+            cached.warnings.insert(
+                0,
+                "cache: reused a matching result within the 60s TTL".into(),
+            );
+            return Ok(cached);
+        }
+
         let mut attempted = HashSet::new();
         let mut last_error: Option<ArgosError> = None;
         let mut warnings = Vec::new();
@@ -377,24 +493,43 @@ impl MetasearchRouter {
                 Ok(mut outcome) => {
                     self.registry.record_outcome(&outcome);
                     outcome.warnings.splice(0..0, warnings);
+                    cache_put(&self.cache, cache_key, &outcome);
                     return Ok(outcome);
                 }
                 Err(ArgosError::AllProvidersRateLimited { providers }) => {
                     self.registry.record_rate_limits(&providers);
-                    for (provider, status) in &providers {
-                        warnings.push(format!(
-                            "{provider}: rate-limited in an earlier wave (HTTP {status})"
-                        ));
+                    for (provider, status, retry_after_secs) in &providers {
+                        warnings.push(match retry_after_secs {
+                            Some(seconds) => format!(
+                                "{provider}: rate-limited in an earlier wave (HTTP {status}); retry after {seconds}s"
+                            ),
+                            None => format!(
+                                "{provider}: rate-limited in an earlier wave (HTTP {status})"
+                            ),
+                        });
                     }
                     last_error = Some(ArgosError::AllProvidersRateLimited { providers });
                 }
-                Err(ArgosError::RateLimited { engine, status }) => {
+                Err(ArgosError::RateLimited {
+                    engine,
+                    status,
+                    retry_after_secs,
+                }) => {
                     self.registry
-                        .record_rate_limits(&[(engine.clone(), status)]);
-                    warnings.push(format!(
-                        "{engine}: rate-limited before fallback (HTTP {status})"
-                    ));
-                    last_error = Some(ArgosError::RateLimited { engine, status });
+                        .record_rate_limits(&[(engine.clone(), status, retry_after_secs)]);
+                    warnings.push(match retry_after_secs {
+                        Some(seconds) => format!(
+                            "{engine}: rate-limited before fallback (HTTP {status}); retry after {seconds}s"
+                        ),
+                        None => format!(
+                            "{engine}: rate-limited before fallback (HTTP {status})"
+                        ),
+                    });
+                    last_error = Some(ArgosError::RateLimited {
+                        engine,
+                        status,
+                        retry_after_secs,
+                    });
                 }
                 Err(error) => {
                     warnings.push(format!("fallback wave failed: {error}"));
@@ -414,6 +549,82 @@ fn shared_states() -> SharedProviderStates {
     STATES
         .get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
         .clone()
+}
+
+fn shared_search_cache() -> SharedSearchCache {
+    static CACHE: OnceLock<SharedSearchCache> = OnceLock::new();
+    CACHE
+        .get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
+        .clone()
+}
+
+fn shared_search_locks() -> SharedSearchLocks {
+    static LOCKS: OnceLock<SharedSearchLocks> = OnceLock::new();
+    LOCKS
+        .get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
+        .clone()
+}
+
+fn cache_lock(locks: &SharedSearchLocks, key: &CacheKey) -> Arc<tokio::sync::Mutex<()>> {
+    let mut locks = locks.lock().expect("search lock registry lock");
+    locks
+        .entry(key.clone())
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone()
+}
+
+fn cache_get(cache: &SharedSearchCache, key: &CacheKey) -> Option<SearchOutcome> {
+    let now = Instant::now();
+    let mut cache = cache.lock().expect("search cache lock");
+    let expired = cache
+        .iter()
+        .filter(|(_, entry)| entry.expires_at <= now)
+        .map(|(key, _)| key.clone())
+        .collect::<Vec<_>>();
+    for key in expired {
+        cache.remove(&key);
+    }
+    cache.get(key).map(|entry| entry.outcome.clone())
+}
+
+fn cache_put(cache: &SharedSearchCache, key: CacheKey, outcome: &SearchOutcome) {
+    static SEQUENCE: AtomicU64 = AtomicU64::new(1);
+    let mut cache = cache.lock().expect("search cache lock");
+    let now = Instant::now();
+    cache.retain(|_, entry| entry.expires_at > now);
+    while cache.len() >= SEARCH_CACHE_CAPACITY {
+        let Some(oldest_key) = cache
+            .iter()
+            .min_by_key(|(_, entry)| entry.sequence)
+            .map(|(key, _)| key.clone())
+        else {
+            break;
+        };
+        cache.remove(&oldest_key);
+    }
+    cache.insert(
+        key,
+        CacheEntry {
+            outcome: outcome.clone(),
+            expires_at: now + SEARCH_CACHE_TTL,
+            sequence: SEQUENCE.fetch_add(1, Ordering::Relaxed),
+        },
+    );
+}
+
+/// Profile used when the caller does not ask for one.
+pub const DEFAULT_PROFILE: &str = "general";
+
+/// Profiles a caller may request, in documentation order.
+pub const PROFILE_IDS: &[&str] = &["general", "academic"];
+
+/// Categories served by each profile.
+fn profile_categories(profile: &str) -> Option<Vec<ProviderCategory>> {
+    match profile {
+        "general" => Some(vec![ProviderCategory::General, ProviderCategory::Local]),
+        "academic" => Some(vec![ProviderCategory::Academic]),
+        _ => None,
+    }
 }
 
 fn builtin_manifest(id: &str) -> Option<ProviderManifest> {
@@ -449,6 +660,32 @@ fn builtin_manifest(id: &str) -> Option<ProviderManifest> {
             "multi",
             80,
             vec![ProviderCategory::General, ProviderCategory::Local],
+        ),
+        // Public bibliographic APIs. Distinct index families on purpose: RRF
+        // only rewards agreement when the agreeing sources are independent.
+        "openalex" => (
+            ProviderKind::Api,
+            ProviderPolicy::PublicApi,
+            CostClass::Free,
+            "openalex",
+            90,
+            vec![ProviderCategory::Academic],
+        ),
+        "crossref" => (
+            ProviderKind::Api,
+            ProviderPolicy::PublicApi,
+            CostClass::Free,
+            "crossref",
+            80,
+            vec![ProviderCategory::Academic],
+        ),
+        "arxiv" => (
+            ProviderKind::Api,
+            ProviderPolicy::PublicApi,
+            CostClass::Free,
+            "arxiv",
+            75,
+            vec![ProviderCategory::Academic],
         ),
         _ => return None,
     };
@@ -488,6 +725,118 @@ mod tests {
     }
 
     #[test]
+    fn profiles_select_disjoint_provider_families() {
+        let config = Config::default();
+        let general = ProviderRegistry::for_profile_with_state(&config, state(), "general")
+            .expect("general profile");
+        let academic = ProviderRegistry::for_profile_with_state(&config, state(), "academic")
+            .expect("academic profile");
+        assert_eq!(
+            general.members(),
+            vec!["duckduckgo", "brave", "bing"],
+            "members are ordered by measured trust, and general must not spend public-API quota"
+        );
+        assert_eq!(academic.members(), vec!["openalex", "crossref", "arxiv"]);
+        assert!(!general.members().contains(&"openalex".to_string()));
+        assert!(!academic.members().contains(&"brave".to_string()));
+    }
+
+    #[test]
+    fn unknown_profile_is_rejected_before_any_network_access() {
+        let error = ProviderRegistry::for_profile(&Config::default(), "nope")
+            .err()
+            .expect("unknown profile must fail");
+        assert!(error.to_string().contains("academic"));
+    }
+
+    #[test]
+    fn empty_profile_falls_back_to_the_configured_set() {
+        let config = Config {
+            providers: vec!["bing".into()],
+            ..Config::default()
+        };
+        // `bing` is General-only, so `academic` has no category members.
+        let academic = ProviderRegistry::for_profile_with_state(&config, state(), "academic")
+            .expect("academic profile");
+        assert_eq!(academic.members(), vec!["bing"]);
+    }
+
+    #[test]
+    fn server_retry_after_replaces_the_conservative_cooldown() {
+        let mut provider = ProviderState::new();
+        let now = Instant::now();
+        provider.record_rate_limited_at(now, 429, Some(11));
+        assert_eq!(provider.cooldown_until, Some(now + Duration::from_secs(11)));
+    }
+
+    #[test]
+    fn missing_retry_after_falls_back_to_the_local_default() {
+        let mut provider = ProviderState::new();
+        let now = Instant::now();
+        provider.record_rate_limited_at(now, 429, None);
+        assert_eq!(provider.cooldown_until, Some(now + RATE_LIMIT_COOLDOWN));
+    }
+
+    #[test]
+    fn search_cache_round_trips_a_successful_outcome() {
+        let cache: SharedSearchCache = Arc::new(Mutex::new(HashMap::new()));
+        let key = CacheKey {
+            profile: "general".into(),
+            query: "rust async runtime".into(),
+            limit: 5,
+            page: 1,
+            domains: Vec::new(),
+        };
+        let outcome = SearchOutcome {
+            results: Vec::new(),
+            providers: Vec::new(),
+            warnings: Vec::new(),
+        };
+        cache_put(&cache, key.clone(), &outcome);
+        assert!(cache_get(&cache, &key).is_some());
+        // A different profile must never reuse the general-web entry.
+        assert!(
+            cache_get(
+                &cache,
+                &CacheKey {
+                    profile: "academic".into(),
+                    ..key
+                }
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn expired_cache_entries_are_dropped_on_read() {
+        let cache: SharedSearchCache = Arc::new(Mutex::new(HashMap::new()));
+        let key = CacheKey {
+            profile: "general".into(),
+            query: "stale".into(),
+            limit: 5,
+            page: 1,
+            domains: Vec::new(),
+        };
+        let outcome = SearchOutcome {
+            results: Vec::new(),
+            providers: Vec::new(),
+            warnings: Vec::new(),
+        };
+        cache_put(&cache, key.clone(), &outcome);
+        cache
+            .lock()
+            .expect("cache lock")
+            .get_mut(&key)
+            .expect("entry")
+            .expires_at = Instant::now();
+        assert!(cache_get(&cache, &key).is_none());
+        assert!(
+            cache.lock().expect("cache lock").get(&key).is_none(),
+            "expired entry must be evicted, not merely hidden"
+        );
+    }
+
+    #[test]
     fn rate_limited_provider_is_skipped_until_cooldown() {
         let config = Config {
             metasearch_initial: 3,
@@ -496,7 +845,7 @@ mod tests {
         let states = state();
         let registry = ProviderRegistry::from_config_with_state(&config, states.clone());
         let now = Instant::now();
-        registry.record_rate_limits(&[("brave".into(), 429)]);
+        registry.record_rate_limits(&[("brave".into(), 429, None)]);
         let selected = registry.select(now);
         assert!(!selected.contains(&"brave".to_string()));
         assert_eq!(selected.len(), 2);
@@ -519,7 +868,7 @@ mod tests {
         };
         let states = state();
         let registry = ProviderRegistry::from_config_with_state(&config, states.clone());
-        registry.record_rate_limits(&[("bing".into(), 429)]);
+        registry.record_rate_limits(&[("bing".into(), 429, None)]);
         assert!(registry.select(Instant::now()).is_empty());
     }
 

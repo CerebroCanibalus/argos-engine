@@ -7,16 +7,19 @@
 //! [`ArgosError::AllProvidersRateLimited`] so the agent knows the empty
 //! result came from anti-bot pressure, not from a genuinely empty topic.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use futures::future::join_all;
 
 use crate::config::Config;
 use crate::error::ArgosError;
 use crate::providers::SearchProvider;
+use crate::providers::arxiv::ArxivProvider;
 use crate::providers::bing::BingProvider;
 use crate::providers::brave::BraveProvider;
+use crate::providers::crossref::CrossrefProvider;
 use crate::providers::duckduckgo::DuckDuckGoProvider;
+use crate::providers::openalex::OpenAlexProvider;
 use crate::providers::searxng::SearxNgProvider;
 use crate::quality;
 use crate::types::{ProviderEntry, ProviderHealth, ProviderStatus, SearchOutcome, SearchResult};
@@ -60,6 +63,17 @@ impl Fanout {
                 }
                 "searxng" => {
                     providers.push((name.clone(), Box::new(SearxNgProvider::new(config.clone()))))
+                }
+                "openalex" => providers.push((
+                    name.clone(),
+                    Box::new(OpenAlexProvider::new(config.clone())),
+                )),
+                "crossref" => providers.push((
+                    name.clone(),
+                    Box::new(CrossrefProvider::new(config.clone())),
+                )),
+                "arxiv" => {
+                    providers.push((name.clone(), Box::new(ArxivProvider::new(config.clone()))))
                 }
                 _ => {}
             }
@@ -165,10 +179,14 @@ impl Fanout {
             })
             .collect();
         if errors.len() == per_provider.len() {
-            let all_rate_limited: Vec<(String, u16)> = errors
+            let all_rate_limited: Vec<(String, u16, Option<u64>)> = errors
                 .iter()
                 .filter_map(|(name, err)| match err {
-                    ArgosError::RateLimited { status, .. } => Some((name.clone(), *status)),
+                    ArgosError::RateLimited {
+                        status,
+                        retry_after_secs,
+                        ..
+                    } => Some((name.clone(), *status, *retry_after_secs)),
                     _ => None,
                 })
                 .collect();
@@ -230,25 +248,7 @@ impl Fanout {
             })
             .collect();
 
-        let mut merged: Vec<SearchResult> = Vec::new();
-        let mut seen: HashSet<String> = HashSet::new();
-        let depth = per_provider_views
-            .iter()
-            .map(|view| view.results.len())
-            .max()
-            .unwrap_or(0);
-        'merge: for rank in 0..depth {
-            for view in &per_provider_views {
-                if let Some(result) = view.results.get(rank)
-                    && seen.insert(normalize_url(&result.url))
-                {
-                    merged.push(result.clone());
-                    if merged.len() >= limit {
-                        break 'merge;
-                    }
-                }
-            }
-        }
+        let merged = rrf_merge(&per_provider_views, limit);
 
         let mut providers = Vec::new();
         let mut warnings = Vec::new();
@@ -261,9 +261,14 @@ impl Fanout {
         } in per_provider_views
         {
             let status = match error {
-                Some(ArgosError::RateLimited { status, .. }) => {
-                    ProviderStatus::RateLimited { status: *status }
-                }
+                Some(ArgosError::RateLimited {
+                    status,
+                    retry_after_secs,
+                    ..
+                }) => ProviderStatus::RateLimited {
+                    status: *status,
+                    retry_after_secs: *retry_after_secs,
+                },
                 Some(ArgosError::Unreachable { origin, cause }) => ProviderStatus::Unreachable {
                     message: format!("{origin}: {cause}"),
                 },
@@ -302,12 +307,128 @@ impl Fanout {
     }
 }
 
-/// Dedup key: scheme, `www.` and trailing slash differences must not split a hit.
+/// RRF (Reciprocal Rank Fusion) candidate accumulator.
+struct RankedCandidate {
+    result: SearchResult,
+    score: f64,
+    matches: usize,
+}
+
+/// Merge provider rankings with weighted RRF, canonical URL dedup and a domain
+/// concentration guard.
+///
+/// Two changes over a plain round-robin interleave matter under pressure:
+/// a URL that several independent indexes agree on outranks a single index's
+/// top hit, and provider quality enters the vote. A provider whose results are
+/// mostly rejected by the quality gate therefore cannot dominate merely by
+/// answering first, which is exactly what Bing's HTML SERP used to do.
+fn rrf_merge(views: &[ProviderView<'_>], limit: usize) -> Vec<SearchResult> {
+    const RRF_K: f64 = 60.0;
+    let mut ranked: HashMap<String, RankedCandidate> = HashMap::new();
+
+    for view in views {
+        if view.results.is_empty() {
+            continue;
+        }
+        // Accepted/total ratio, floored so a provider is never fully erased by
+        // one stray rejection.
+        let quality = if view.returned == 0 {
+            0.0
+        } else {
+            (view.results.len() as f64 / view.returned as f64).clamp(0.2, 1.0)
+        };
+        let weight = provider_weight(&view.name) * quality;
+        for (rank, result) in view.results.iter().enumerate() {
+            let key = normalize_url(&result.url);
+            let contribution = weight / (RRF_K + rank as f64 + 1.0);
+            let candidate = ranked.entry(key).or_insert_with(|| RankedCandidate {
+                result: result.clone(),
+                score: 0.0,
+                matches: 0,
+            });
+            candidate.score += contribution;
+            candidate.matches += 1;
+            // Keep the richest metadata when duplicates disagree.
+            if result.snippet.chars().count() > candidate.result.snippet.chars().count() {
+                candidate.result.snippet = result.snippet.clone();
+            }
+        }
+    }
+
+    let mut ordered: Vec<(String, RankedCandidate)> = ranked.into_iter().collect();
+    ordered.sort_by(|(left_key, left), (right_key, right)| {
+        right
+            .score
+            .total_cmp(&left.score)
+            .then_with(|| right.matches.cmp(&left.matches))
+            .then_with(|| left_key.cmp(right_key))
+    });
+
+    let mut selected = Vec::with_capacity(limit);
+    let mut selected_keys: HashSet<String> = HashSet::new();
+    let mut source_counts: HashMap<String, usize> = HashMap::new();
+    // First pass allows at most two results per source host; the second pass
+    // fills the remainder when the corpus is genuinely concentrated.
+    for max_per_source in [2usize, usize::MAX] {
+        for (key, candidate) in &ordered {
+            if selected.len() >= limit {
+                return selected;
+            }
+            if !selected_keys.insert(key.clone()) {
+                continue;
+            }
+            let source = candidate.result.source.clone();
+            let count = source_counts.get(&source).copied().unwrap_or(0);
+            if count >= max_per_source {
+                continue;
+            }
+            *source_counts.entry(source).or_insert(0) += 1;
+            selected.push(candidate.result.clone());
+        }
+    }
+    selected
+}
+
+/// Relative trust per provider index, from the 2026-09-24 provider audit.
+///
+/// Measured on this machine: Brave's independent index was accurate, DDG was
+/// mixed, and Bing returned real HTML with poor semantic quality (a query for
+/// free piano VSTs surfaced games and unrelated tourist pages).
+fn provider_weight(name: &str) -> f64 {
+    match name {
+        "bing" => 0.45,
+        "duckduckgo" | "searxng" => 0.9,
+        _ => 1.0,
+    }
+}
+
+/// Canonical URL key: host, port, path and query survive; scheme, `www.`,
+/// fragment and trailing-slash differences must not split a duplicate hit.
 fn normalize_url(url: &str) -> String {
+    if let Ok(parsed) = url::Url::parse(url) {
+        let host = parsed
+            .host_str()
+            .unwrap_or_default()
+            .trim_start_matches("www.");
+        let port = parsed
+            .port()
+            .map(|value| format!(":{value}"))
+            .unwrap_or_default();
+        let path = parsed.path().trim_end_matches('/');
+        let query = parsed
+            .query()
+            .map(|value| format!("?{value}"))
+            .unwrap_or_default();
+        return format!("{host}{port}{path}{query}");
+    }
+
     url.trim()
         .trim_start_matches("https://")
         .trim_start_matches("http://")
         .trim_start_matches("www.")
+        .split('#')
+        .next()
+        .unwrap_or("")
         .trim_end_matches('/')
         .to_string()
 }
@@ -315,9 +436,15 @@ fn normalize_url(url: &str) -> String {
 /// Render the human-readable warning for a degraded provider status.
 fn warnings_for(name: &str, status: &ProviderStatus) -> Option<String> {
     match status {
-        ProviderStatus::RateLimited { status: code } => Some(format!(
-            "{name}: rate-limited (HTTP {code}); back off or rotate ARGOS_PROVIDERS"
-        )),
+        ProviderStatus::RateLimited {
+            status: code,
+            retry_after_secs,
+        } => Some(match retry_after_secs {
+            Some(seconds) => format!("{name}: rate-limited (HTTP {code}); retry after {seconds}s"),
+            None => {
+                format!("{name}: rate-limited (HTTP {code}); back off or rotate ARGOS_PROVIDERS")
+            }
+        }),
         ProviderStatus::Filtered { returned } => Some(format!(
             "{name}: returned {returned} result(s), but none passed Argos' domain/relevance gate"
         )),
@@ -475,6 +602,7 @@ mod tests {
                     error: Some(ArgosError::RateLimited {
                         engine: "engine-b".into(),
                         status: 202,
+                        retry_after_secs: None,
                     }),
                 },
             ),
@@ -500,6 +628,7 @@ mod tests {
                     error: Some(ArgosError::RateLimited {
                         engine: "ddg".into(),
                         status: 202,
+                        retry_after_secs: None,
                     }),
                 },
             ),
@@ -510,6 +639,7 @@ mod tests {
                     error: Some(ArgosError::RateLimited {
                         engine: "bing".into(),
                         status: 429,
+                        retry_after_secs: None,
                     }),
                 },
             ),
@@ -521,7 +651,7 @@ mod tests {
         match error {
             ArgosError::AllProvidersRateLimited { providers } => {
                 assert_eq!(providers.len(), 2);
-                let names: Vec<&str> = providers.iter().map(|(n, _)| n.as_str()).collect();
+                let names: Vec<&str> = providers.iter().map(|(n, _, _)| n.as_str()).collect();
                 assert!(names.contains(&"ddg"));
                 assert!(names.contains(&"bing"));
             }
@@ -546,6 +676,7 @@ mod tests {
                     error: Some(ArgosError::RateLimited {
                         engine: "brave".into(),
                         status: 429,
+                        retry_after_secs: None,
                     }),
                 },
             ),
@@ -558,7 +689,10 @@ mod tests {
         ));
         assert!(matches!(
             status_of(&outcome, "brave"),
-            Some(ProviderStatus::RateLimited { status: 429 })
+            Some(ProviderStatus::RateLimited {
+                status: 429,
+                retry_after_secs: None
+            })
         ));
         assert_eq!(outcome.warnings.len(), 1);
         assert!(outcome.warnings[0].contains("brave"));

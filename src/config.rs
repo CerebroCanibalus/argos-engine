@@ -24,6 +24,9 @@ pub struct Config {
     pub stack_script: PathBuf,
     /// Enabled providers in fanout order (`ARGOS_PROVIDERS`, comma-separated).
     pub providers: Vec<String>,
+    /// Optional contact address for public APIs' polite pools
+    /// (`ARGOS_CONTACT_EMAIL`). Not a key: no account is created with it.
+    pub contact_email: Option<String>,
     /// Maximum providers in the first metasearch wave.
     pub metasearch_initial: usize,
     /// Maximum providers considered across all fallback waves.
@@ -41,9 +44,19 @@ impl Default for Config {
             idle_stop: Duration::from_secs(300),
             wsl_distro: "Ubuntu".into(),
             stack_script: default_stack_script(),
-            providers: vec!["duckduckgo".into(), "bing".into(), "brave".into()],
-            metasearch_initial: 3,
-            metasearch_total: 3,
+            contact_email: None,
+            providers: vec![
+                "duckduckgo".into(),
+                "bing".into(),
+                "brave".into(),
+                "openalex".into(),
+                "crossref".into(),
+                "arxiv".into(),
+            ],
+            // Two providers in the first wave keeps noisy/low-value HTML
+            // engines out of the common path; fallback then escalates to five.
+            metasearch_initial: 2,
+            metasearch_total: 5,
         }
     }
 }
@@ -80,7 +93,14 @@ fn parse_count(name: &str, default: usize, min: usize, max: usize) -> usize {
         .map_or(default, |value| value.clamp(min, max))
 }
 
-/// Split a comma-separated provider list into normalized lowercase names.
+/// Accept a contact address only if it plausibly is one.
+///
+/// A broken `mailto` would be forwarded upstream as a polite-pool parameter, so
+/// junk is ignored instead of shipped.
+fn parse_contact_email(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    (trimmed.contains('@') && trimmed.contains('.')).then(|| trimmed.to_string())
+}
 fn parse_providers(raw: &str) -> Vec<String> {
     raw.split(',')
         .map(|part| part.trim().to_ascii_lowercase())
@@ -121,6 +141,9 @@ impl Config {
                 config.providers = providers;
             }
         }
+        if let Ok(raw) = std::env::var("ARGOS_CONTACT_EMAIL") {
+            config.contact_email = parse_contact_email(&raw);
+        }
         let initial = parse_count("ARGOS_META_INITIAL", config.metasearch_initial, 1, 10);
         let total = parse_count("ARGOS_META_TOTAL", config.metasearch_total, initial, 30);
         config.metasearch_initial = initial;
@@ -144,9 +167,32 @@ mod tests {
         assert_eq!(config.idle_stop, Duration::from_secs(300));
         assert_eq!(config.wsl_distro, "Ubuntu");
         assert!(config.stack_script.to_string_lossy().contains("searxng"));
-        assert_eq!(config.providers, vec!["duckduckgo", "bing", "brave"]);
-        assert_eq!(config.metasearch_initial, 3);
-        assert_eq!(config.metasearch_total, 3);
+        assert_eq!(
+            config.providers,
+            vec![
+                "duckduckgo",
+                "bing",
+                "brave",
+                "openalex",
+                "crossref",
+                "arxiv"
+            ]
+        );
+        assert_eq!(config.metasearch_initial, 2);
+        assert_eq!(config.metasearch_total, 5);
+    }
+
+    #[test]
+    fn contact_email_must_look_like_an_address() {
+        // Guards the polite-pool parameter: garbage must never be sent upstream.
+        assert!(parse_contact_email("not-an-email").is_none());
+        assert!(parse_contact_email("   ").is_none());
+        assert!(parse_contact_email("general@example.org").is_some());
+        assert_eq!(
+            parse_contact_email("  general@example.org  ").as_deref(),
+            Some("general@example.org")
+        );
+        assert!(Config::default().contact_email.is_none());
     }
 
     #[test]

@@ -59,7 +59,13 @@ pub enum ProviderStatus {
     /// relevance quality gate.
     Filtered { returned: usize },
     /// Provider returned an anti-bot rate-limit response.
-    RateLimited { status: u16 },
+    RateLimited {
+        /// HTTP status observed (202/403/429 in the wild).
+        status: u16,
+        /// Delay the server asked for, when it advertised one.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        retry_after_secs: Option<u64>,
+    },
     /// Provider could not be reached (transport error, timeout, ...).
     Unreachable { message: String },
 }

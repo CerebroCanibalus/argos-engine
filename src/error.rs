@@ -37,14 +37,17 @@ pub enum ArgosError {
         engine: String,
         /// HTTP status (202/403/429 observed in the wild).
         status: u16,
+        /// Delay the server asked for, when it advertised one. Overrides the
+        /// conservative local cooldown so Argos waits exactly as long as asked.
+        retry_after_secs: Option<u64>,
     },
 
     /// Every configured provider rate-limited this IP, so the search returned
     /// nothing because of anti-bot pressure - not because the topic has no hits.
     #[error("all providers rate-limited this IP")]
     AllProvidersRateLimited {
-        /// `(engine, http_status)` for every provider that answered rate-limit.
-        providers: Vec<(String, u16)>,
+        /// `(engine, http_status, retry_after_secs)` for every rate-limited provider.
+        providers: Vec<(String, u16, Option<u64>)>,
     },
 
     /// Providers answered, but every result was rejected by the requested
@@ -109,14 +112,18 @@ impl From<ArgosError> for ToolError {
             ArgosError::Unreachable { .. } => tool_error.with_data(json!({
                 "hint": "Network problem with this provider. Providers are independent: the fanout keeps going if another one answers - check ARGOS_PROVIDERS.",
             })),
-            ArgosError::RateLimited { .. } => tool_error.with_data(json!({
+            ArgosError::RateLimited {
+                retry_after_secs, ..
+            } => tool_error.with_data(json!({
                 "hint": "This engine flagged your IP (202/403/429 are the classic anti-bot answers). Wait it out, and raise the ceiling by enabling more providers via ARGOS_PROVIDERS - the fanout spreads load across independent rate budgets.",
+                "retry_after_secs": retry_after_secs,
             })),
             ArgosError::AllProvidersRateLimited { providers } => tool_error.with_data(json!({
                 "hint": "Every configured provider answered with an anti-bot status. The search returned nothing because your IP was throttled, not because the topic has no hits.",
-                "providers": providers.iter().map(|(name, status)| json!({
+                "providers": providers.iter().map(|(name, status, retry_after_secs)| json!({
                     "name": name,
                     "status": status,
+                    "retry_after_secs": retry_after_secs,
                 })).collect::<Vec<_>>(),
             })),
             ArgosError::NoUsableResults { returned, rejected } => tool_error.with_data(json!({
@@ -185,27 +192,30 @@ mod tests {
     }
 
     #[test]
-    fn rate_limit_explains_the_ceiling_lever() {
+    fn rate_limit_explains_the_ceiling_lever_and_echoes_retry_after() {
         let error: ToolError = ArgosError::RateLimited {
             engine: "duckduckgo".into(),
             status: 202,
+            retry_after_secs: Some(7),
         }
         .into();
         let data = error.to_error_data();
         assert!(data.message.contains("rate-limited"));
         assert!(data.message.contains("202"));
-        let hint = data.data.expect("hint payload expected")["hint"]
-            .as_str()
-            .unwrap_or_default()
-            .to_string();
+        let payload = data.data.expect("hint payload expected");
+        let hint = payload["hint"].as_str().unwrap_or_default();
         assert!(hint.contains("ARGOS_PROVIDERS"));
         assert!(hint.contains("fanout"));
+        assert_eq!(payload["retry_after_secs"], 7);
     }
 
     #[test]
     fn all_providers_rate_limited_lists_them_and_distinguishes_from_no_results() {
         let error: ToolError = ArgosError::AllProvidersRateLimited {
-            providers: vec![("duckduckgo".into(), 202), ("bing".into(), 429)],
+            providers: vec![
+                ("duckduckgo".into(), 202, None),
+                ("bing".into(), 429, Some(11)),
+            ],
         }
         .into();
         let data = error.to_error_data();
@@ -218,6 +228,7 @@ mod tests {
         );
         let listed = payload["providers"].as_array().expect("providers array");
         assert_eq!(listed.len(), 2);
+        assert_eq!(listed[1]["retry_after_secs"], 11);
     }
 
     #[test]

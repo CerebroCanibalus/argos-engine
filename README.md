@@ -24,7 +24,7 @@ Early development — **Milestone 1: keyless multi-provider search**. Not produc
 
 | Feature | Status |
 |---|---|
-| `search` via keyless fanout (DuckDuckGo + Bing + Brave), dedup + failover | ✅ |
+| `search` via keyless fanout (DuckDuckGo + Bing + Brave) and keyless academic APIs (OpenAlex + Crossref + arXiv), RRF fusion, dedup + failover | ✅ |
 | Browser impersonation (primp / Chrome153) — Bing & Brave pass | ✅ |
 | `status` with per-provider reachability probes | ✅ |
 | Typed errors with hints (`rate_limited`, `all_rate_limited`, `unreachable`, ...) | ✅ |
@@ -73,16 +73,17 @@ set ARGOS_PROVIDERS=duckduckgo,bing,searxng
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `search` | `query`, `limit?` (1-50, default 10), `page?`, `domains?` (`[String]`, e.g. `["kvrforums.com", "reddit.com"]`) | `{ results: [{ url, source, title, snippet, engine }], providers: [{name, kind: "ok"|"empty"|"filtered"|"rate_limited"|"unreachable", ...}], warnings: [...] }` |
+| `search` | `query`, `limit?` (1-50, default 10), `page?`, `profile?` (`"general"` or `"academic"`), `domains?` (`[String]`, e.g. `["kvrforums.com", "reddit.com"]`) | `{ results: [{ url, source, title, snippet, engine }], providers: [{name, kind: "ok"|"empty"|"filtered"|"rate_limited"|"unreachable", ...}], warnings: [...] }` |
 | `status` | – | `{ name, version, searxng_url, searxng_reachable, providers: [{name, reachable}] }` |
 
 ### Configuration
 
 | Env var | Default | Meaning |
 |---|---|---|
-| `ARGOS_PROVIDERS` | `duckduckgo,bing,brave` | Enabled providers, fanout order (adds `searxng` to opt in) |
-| `ARGOS_META_INITIAL` | `3` | Maximum providers in the first native metasearch wave |
-| `ARGOS_META_TOTAL` | `3` | Maximum providers considered across fallback waves |
+| `ARGOS_PROVIDERS` | `duckduckgo,bing,brave,openalex,crossref,arxiv` | Enabled providers; profiles pick the family (adds `searxng` to opt in) |
+| `ARGOS_CONTACT_EMAIL` | _(unset)_ | Optional contact address for OpenAlex/Crossref polite pools. Not a key, no account |
+| `ARGOS_META_INITIAL` | `2` | Maximum providers in the first native metasearch wave |
+| `ARGOS_META_TOTAL` | `5` | Maximum providers considered across fallback waves |
 | `ARGOS_SEARXNG_URL` | `http://127.0.0.1:8080` | Adapter base URL |
 | `ARGOS_AUTO_START` | `1` | Boot the WSL2 stack on demand when the adapter is enabled and down |
 | `ARGOS_IDLE_STOP_SECS` | `300` | Terminate the stack after idle (`0` = keep) |
