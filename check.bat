@@ -6,6 +6,10 @@ if exist "%VSCMD%" (
     call "%VSCMD%" -arch=x64 > nul
 )
 
+REM Pin the target dir so lint results always cover the shipped crate, not
+REM whatever a caller happened to export.
+set CARGO_TARGET_DIR=
+
 cargo fmt --check
 if errorlevel 1 (
     echo [ERROR] formatting issues found (run fmt.bat)

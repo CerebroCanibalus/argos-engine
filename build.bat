@@ -13,6 +13,11 @@ if not exist "Cargo.toml" (
     exit /b 1
 )
 
+REM Always build into the repo's target\ directory. An inherited
+REM CARGO_TARGET_DIR would silently redirect this script somewhere else, and the
+REM release binary everyone runs would keep an old version.
+set CARGO_TARGET_DIR=
+
 REM Kill any running build output before compiling (file lock prevention)
 taskkill /F /IM argos-engine.exe > nul 2>&1
 

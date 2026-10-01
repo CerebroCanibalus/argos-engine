@@ -4,6 +4,11 @@ All notable Argos Engine changes are recorded here.
 
 ## 0.5.0 - academic wave 2 and the code profile
 
+- Fixed the MCP `initialize` handshake, which advertised a hardcoded `0.3.0`:
+  the version literal in the `flojo_mcp` attribute drifted from Cargo.toml for
+  two releases while the `status` tool reported the real one. A test now pins
+  them together.
+
 New keyless adapters, each with a pure fixture-tested parser:
 
 - europe_pmc: biomedical/life-science index. `resultType=core` is required for

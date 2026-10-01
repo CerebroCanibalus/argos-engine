@@ -15,7 +15,10 @@ mod types;
 
 use flojo_mcp::prelude::*;
 
-#[flojo_mcp(name = "argos-engine", version = "0.3.0")]
+// The `version` here is a literal because the attribute only accepts one, so it
+// can drift from Cargo.toml. `handshake_version_matches_the_crate_version`
+// keeps the two honest; the `status` tool reads `CARGO_PKG_VERSION` directly.
+#[flojo_mcp(name = "argos-engine", version = "0.5.0")]
 struct ArgosEngine;
 
 #[tokio::main]
@@ -31,11 +34,23 @@ mod tests {
     use crate::types::Status;
 
     #[tokio::test]
+    async fn handshake_version_matches_the_crate_version() {
+        // The MCP `initialize` handshake advertises the literal in the
+        // attribute, while the `status` tool reports `CARGO_PKG_VERSION`.
+        // They shipped disagreeing for two releases, so pin the invariant.
+        assert_eq!(
+            ArgosEngine::version(),
+            env!("CARGO_PKG_VERSION"),
+            "the advertised server version must equal the crate version"
+        );
+    }
+
+    #[tokio::test]
     async fn status_reports_engine_identity() {
         let tester = FlojoTester::new(ArgosEngine::new());
         let status: Status = tester.call_typed("status", json!({})).await.unwrap();
         assert_eq!(status.name, "argos-engine");
-        assert!(!status.version.is_empty());
+        assert_eq!(status.version, env!("CARGO_PKG_VERSION"));
         assert!(status.searxng_url.starts_with("http"));
     }
 
