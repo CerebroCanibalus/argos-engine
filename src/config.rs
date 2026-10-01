@@ -27,6 +27,12 @@ pub struct Config {
     /// Optional contact address for public APIs' polite pools
     /// (`ARGOS_CONTACT_EMAIL`). Not a key: no account is created with it.
     pub contact_email: Option<String>,
+    /// Optional token raising the GitHub Search quota from 60/h
+    /// (`ARGOS_GITHUB_TOKEN`). Keyless works without it.
+    pub github_token: Option<String>,
+    /// Optional Semantic Scholar API key (`ARGOS_SEMANTIC_SCHOLAR_KEY`).
+    /// Keyless works without it, but anonymous traffic is throttled hard.
+    pub semantic_scholar_key: Option<String>,
     /// Maximum providers in the first metasearch wave.
     pub metasearch_initial: usize,
     /// Maximum providers considered across all fallback waves.
@@ -45,6 +51,11 @@ impl Default for Config {
             wsl_distro: "Ubuntu".into(),
             stack_script: default_stack_script(),
             contact_email: None,
+            github_token: None,
+            semantic_scholar_key: None,
+            // Every implemented adapter is enabled by default; the `profile`
+            // decides which family actually spends quota, so a broad list does
+            // not mean a broad fanout.
             providers: vec![
                 "duckduckgo".into(),
                 "bing".into(),
@@ -52,6 +63,16 @@ impl Default for Config {
                 "openalex".into(),
                 "crossref".into(),
                 "arxiv".into(),
+                "semantic_scholar".into(),
+                "europe_pmc".into(),
+                "doaj".into(),
+                "pubmed".into(),
+                "github".into(),
+                "crates".into(),
+                "npm".into(),
+                "packagist".into(),
+                "wikimedia".into(),
+                "gdelt".into(),
             ],
             // Two providers in the first wave keeps noisy/low-value HTML
             // engines out of the common path; fallback then escalates to five.
@@ -84,6 +105,15 @@ fn parse_secs(name: &str, default: Duration) -> Duration {
         .ok()
         .and_then(|raw| raw.trim().parse::<u64>().ok())
         .map_or(default, Duration::from_secs)
+}
+
+/// Accept an optional credential only if it looks like one.
+///
+/// An empty or whitespace-only variable must not become an empty header value,
+/// which several upstreams treat as a malformed request.
+fn parse_secret(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
 fn parse_count(name: &str, default: usize, min: usize, max: usize) -> usize {
@@ -144,6 +174,12 @@ impl Config {
         if let Ok(raw) = std::env::var("ARGOS_CONTACT_EMAIL") {
             config.contact_email = parse_contact_email(&raw);
         }
+        if let Ok(raw) = std::env::var("ARGOS_GITHUB_TOKEN") {
+            config.github_token = parse_secret(&raw);
+        }
+        if let Ok(raw) = std::env::var("ARGOS_SEMANTIC_SCHOLAR_KEY") {
+            config.semantic_scholar_key = parse_secret(&raw);
+        }
         let initial = parse_count("ARGOS_META_INITIAL", config.metasearch_initial, 1, 10);
         let total = parse_count("ARGOS_META_TOTAL", config.metasearch_total, initial, 30);
         config.metasearch_initial = initial;
@@ -175,7 +211,17 @@ mod tests {
                 "brave",
                 "openalex",
                 "crossref",
-                "arxiv"
+                "arxiv",
+                "semantic_scholar",
+                "europe_pmc",
+                "doaj",
+                "pubmed",
+                "github",
+                "crates",
+                "npm",
+                "packagist",
+                "wikimedia",
+                "gdelt",
             ]
         );
         assert_eq!(config.metasearch_initial, 2);
@@ -193,6 +239,19 @@ mod tests {
             Some("general@example.org")
         );
         assert!(Config::default().contact_email.is_none());
+    }
+
+    #[test]
+    fn secrets_reject_blank_values() {
+        assert_eq!(
+            parse_secret("  ghp_example  ").as_deref(),
+            Some("ghp_example")
+        );
+        assert!(parse_secret("   ").is_none());
+        assert!(parse_secret("").is_none());
+        let config = Config::default();
+        assert!(config.github_token.is_none());
+        assert!(config.semantic_scholar_key.is_none());
     }
 
     #[test]

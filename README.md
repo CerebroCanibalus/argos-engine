@@ -24,7 +24,7 @@ Early development — **Milestone 1: keyless multi-provider search**. Not produc
 
 | Feature | Status |
 |---|---|
-| `search` via keyless fanout (DuckDuckGo + Bing + Brave) and keyless academic APIs (OpenAlex + Crossref + arXiv), RRF fusion, dedup + failover | ✅ |
+| `search` via five keyless profiles: general web (DuckDuckGo/Bing/Brave), academic (OpenAlex, Crossref, arXiv, Europe PMC, PubMed, DOAJ, Semantic Scholar), code (GitHub, crates.io, npm, Packagist), news (GDELT) and knowledge (Wikipedia). Weighted RRF fusion, canonical dedup, failover | ✅ |
 | Browser impersonation (primp / Chrome153) — Bing & Brave pass | ✅ |
 | `status` with per-provider reachability probes | ✅ |
 | Typed errors with hints (`rate_limited`, `all_rate_limited`, `unreachable`, ...) | ✅ |
@@ -73,15 +73,17 @@ set ARGOS_PROVIDERS=duckduckgo,bing,searxng
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `search` | `query`, `limit?` (1-50, default 10), `page?`, `profile?` (`"general"` or `"academic"`), `domains?` (`[String]`, e.g. `["kvrforums.com", "reddit.com"]`) | `{ results: [{ url, source, title, snippet, engine }], providers: [{name, kind: "ok"|"empty"|"filtered"|"rate_limited"|"unreachable", ...}], warnings: [...] }` |
+| `search` | `query`, `limit?` (1-50, default 10), `page?`, `profile?` (`general`, `academic`, `code`, `news`, `knowledge`), `domains?` (`[String]`, e.g. `["kvrforums.com", "reddit.com"]`) | `{ results: [{ url, source, title, snippet, engine }], providers: [{name, kind: "ok"|"empty"|"filtered"|"rate_limited"|"unreachable", ...}], warnings: [...] }` |
 | `status` | – | `{ name, version, searxng_url, searxng_reachable, providers: [{name, reachable}] }` |
 
 ### Configuration
 
 | Env var | Default | Meaning |
 |---|---|---|
-| `ARGOS_PROVIDERS` | `duckduckgo,bing,brave,openalex,crossref,arxiv` | Enabled providers; profiles pick the family (adds `searxng` to opt in) |
-| `ARGOS_CONTACT_EMAIL` | _(unset)_ | Optional contact address for OpenAlex/Crossref polite pools. Not a key, no account |
+| `ARGOS_PROVIDERS` | 16 implemented adapters | Enabled adapters; the `profile` decides which family spends quota (adds `searxng` to opt in) |
+| `ARGOS_CONTACT_EMAIL` | _(unset)_ | Optional contact address for the OpenAlex/Crossref/PubMed polite pools. Not a key, no account |
+| `ARGOS_GITHUB_TOKEN` | _(unset)_ | Optional token; raises the GitHub Search quota from 60/h |
+| `ARGOS_SEMANTIC_SCHOLAR_KEY` | _(unset)_ | Optional key; anonymous traffic is throttled hard |
 | `ARGOS_META_INITIAL` | `2` | Maximum providers in the first native metasearch wave |
 | `ARGOS_META_TOTAL` | `5` | Maximum providers considered across fallback waves |
 | `ARGOS_SEARXNG_URL` | `http://127.0.0.1:8080` | Adapter base URL |

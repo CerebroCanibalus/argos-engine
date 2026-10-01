@@ -77,6 +77,8 @@ pub struct Status {
     pub name: String,
     /// Engine version
     pub version: String,
+    /// Profile whose providers were probed
+    pub profile: String,
     /// Configured SearXNG base URL (optional adapter)
     pub searxng_url: String,
     /// Whether the optional SearXNG instance answered a health probe

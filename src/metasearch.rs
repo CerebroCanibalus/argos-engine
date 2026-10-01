@@ -417,6 +417,7 @@ impl ProviderRegistry {
 pub struct MetasearchRouter {
     registry: ProviderRegistry,
     fanout: Fanout,
+    config: Config,
     cache: SharedSearchCache,
     cache_locks: SharedSearchLocks,
 }
@@ -428,16 +429,31 @@ impl MetasearchRouter {
         Ok(Self::build(
             ProviderRegistry::for_profile(config, profile)?,
             Fanout::from_config(config),
+            config.clone(),
         ))
     }
 
-    fn build(registry: ProviderRegistry, fanout: Fanout) -> Self {
+    fn build(registry: ProviderRegistry, fanout: Fanout, config: Config) -> Self {
         Self {
             registry,
             fanout,
+            config,
             cache: shared_search_cache(),
             cache_locks: shared_search_locks(),
         }
+    }
+
+    /// Reachability probes restricted to this router's profile members.
+    pub async fn probes(&self) -> Vec<crate::types::ProviderHealth> {
+        self.fanout.probes_selected(&self.registry.members()).await
+    }
+
+    /// Whether the optional local SearXNG stack answers.
+    pub async fn searxng_reachable(&self) -> bool {
+        use crate::providers::SearchProvider as _;
+        crate::providers::searxng::SearxNgProvider::new(self.config.clone())
+            .health()
+            .await
     }
 
     pub async fn run(
@@ -616,13 +632,16 @@ fn cache_put(cache: &SharedSearchCache, key: CacheKey, outcome: &SearchOutcome) 
 pub const DEFAULT_PROFILE: &str = "general";
 
 /// Profiles a caller may request, in documentation order.
-pub const PROFILE_IDS: &[&str] = &["general", "academic"];
+pub const PROFILE_IDS: &[&str] = &["general", "academic", "code", "news", "knowledge"];
 
 /// Categories served by each profile.
 fn profile_categories(profile: &str) -> Option<Vec<ProviderCategory>> {
     match profile {
         "general" => Some(vec![ProviderCategory::General, ProviderCategory::Local]),
         "academic" => Some(vec![ProviderCategory::Academic]),
+        "code" => Some(vec![ProviderCategory::Code]),
+        "news" => Some(vec![ProviderCategory::News]),
+        "knowledge" => Some(vec![ProviderCategory::Knowledge]),
         _ => None,
     }
 }
@@ -687,6 +706,90 @@ fn builtin_manifest(id: &str) -> Option<ProviderManifest> {
             75,
             vec![ProviderCategory::Academic],
         ),
+        // Academic wave 2. Priorities sit below OpenAlex/Crossref because these
+        // are narrower or, in Semantic Scholar's case, throttled anonymously.
+        "europe_pmc" => (
+            ProviderKind::Api,
+            ProviderPolicy::Vertical,
+            CostClass::Free,
+            "europe_pmc",
+            70,
+            vec![ProviderCategory::Academic],
+        ),
+        "doaj" => (
+            ProviderKind::Api,
+            ProviderPolicy::PublicApi,
+            CostClass::Free,
+            "doaj",
+            65,
+            vec![ProviderCategory::Academic],
+        ),
+        "pubmed" => (
+            ProviderKind::Api,
+            ProviderPolicy::Vertical,
+            CostClass::Free,
+            "pubmed",
+            64,
+            vec![ProviderCategory::Academic],
+        ),
+        "semantic_scholar" => (
+            ProviderKind::Api,
+            ProviderPolicy::PublicApi,
+            CostClass::Free,
+            "semantic_scholar",
+            60,
+            vec![ProviderCategory::Academic],
+        ),
+        // Code family. GitHub leads because its anonymous quota (60/h) is the
+        // scarcest resource in the registry: spend it on the first wave.
+        "github" => (
+            ProviderKind::Api,
+            ProviderPolicy::Vertical,
+            CostClass::Free,
+            "github",
+            95,
+            vec![ProviderCategory::Code],
+        ),
+        "crates" => (
+            ProviderKind::Api,
+            ProviderPolicy::Vertical,
+            CostClass::Free,
+            "crates_io",
+            85,
+            vec![ProviderCategory::Code],
+        ),
+        "npm" => (
+            ProviderKind::Api,
+            ProviderPolicy::Vertical,
+            CostClass::Free,
+            "npm",
+            80,
+            vec![ProviderCategory::Code],
+        ),
+        "packagist" => (
+            ProviderKind::Api,
+            ProviderPolicy::Vertical,
+            CostClass::Free,
+            "packagist",
+            70,
+            vec![ProviderCategory::Code],
+        ),
+        "wikimedia" => (
+            ProviderKind::Api,
+            ProviderPolicy::Vertical,
+            CostClass::Free,
+            "wikimedia",
+            80,
+            vec![ProviderCategory::Knowledge],
+        ),
+        "gdelt" => (
+            ProviderKind::Api,
+            ProviderPolicy::Vertical,
+            CostClass::Free,
+            "gdelt",
+            70,
+            vec![ProviderCategory::News],
+        ),
         _ => return None,
     };
     Some(ProviderManifest {
@@ -731,14 +834,40 @@ mod tests {
             .expect("general profile");
         let academic = ProviderRegistry::for_profile_with_state(&config, state(), "academic")
             .expect("academic profile");
+        let code = ProviderRegistry::for_profile_with_state(&config, state(), "code")
+            .expect("code profile");
+        let news = ProviderRegistry::for_profile_with_state(&config, state(), "news")
+            .expect("news profile");
+        let knowledge = ProviderRegistry::for_profile_with_state(&config, state(), "knowledge")
+            .expect("knowledge profile");
+
+        // Members are ordered by measured trust, and families must not leak into
+        // each other: an academic search must never spend HTML engine quota.
+        assert_eq!(general.members(), vec!["duckduckgo", "brave", "bing"]);
         assert_eq!(
-            general.members(),
-            vec!["duckduckgo", "brave", "bing"],
-            "members are ordered by measured trust, and general must not spend public-API quota"
+            academic.members(),
+            vec![
+                "openalex",
+                "crossref",
+                "arxiv",
+                "europe_pmc",
+                "doaj",
+                "pubmed",
+                "semantic_scholar"
+            ]
         );
-        assert_eq!(academic.members(), vec!["openalex", "crossref", "arxiv"]);
-        assert!(!general.members().contains(&"openalex".to_string()));
-        assert!(!academic.members().contains(&"brave".to_string()));
+        assert_eq!(code.members(), vec!["github", "crates", "npm", "packagist"]);
+        assert_eq!(news.members(), vec!["gdelt"]);
+        assert_eq!(knowledge.members(), vec!["wikimedia"]);
+
+        for other in [academic.members(), code.members(), news.members()] {
+            for id in &other {
+                assert!(
+                    !general.members().contains(id),
+                    "{id} must not appear in two profiles"
+                );
+            }
+        }
     }
 
     #[test]
@@ -747,6 +876,7 @@ mod tests {
             .err()
             .expect("unknown profile must fail");
         assert!(error.to_string().contains("academic"));
+        assert!(error.to_string().contains("code"));
     }
 
     #[test]

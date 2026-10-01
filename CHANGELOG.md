@@ -2,7 +2,61 @@
 
 All notable Argos Engine changes are recorded here.
 
-## 0.4.0 — public API adapters and fusion hardening
+## 0.5.0 - academic wave 2 and the code profile
+
+New keyless adapters, each with a pure fixture-tested parser:
+
+- europe_pmc: biomedical/life-science index. `resultType=core` is required for
+  abstracts; `lite` silently omits them.
+- pubmed: E-utilities `esearch` + `esummary`. Prefers the DOI in `elocationid`,
+  falling back to the PubMed record when the locator is not a DOI.
+- doaj: open-access journals and articles.
+- semantic_scholar: citation graph; optional `ARGOS_SEMANTIC_SCHOLAR_KEY`.
+- gdelt: global news, with its own `news` profile.
+- github: repository search, the anchor of the new `code` profile.
+- crates, npm, packagist: the Rust, JavaScript and PHP registries.
+- wikimedia: Wikipedia search, in its own `knowledge` profile.
+
+New profiles, each a disjoint provider family:
+
+- `code` (github, crates, npm, packagist) for finding libraries and repositories.
+- `news` (gdelt) and `knowledge` (wikimedia).
+
+`status` now takes the same `profile` argument and probes only that family, so
+checking health no longer costs requests against sixteen providers.
+
+A quality-gate change the smoke tests forced:
+
+- The lexical relevance filter now applies only to the HTML engines. It exists
+  because search pages drift and can answer a different question while returning
+  HTTP 200. A curated API is itself the relevance signal, and re-filtering it
+  only discarded good results: crates.io was dropping matching crates because
+  their canonical URL is the repository rather than the registry page. Domain
+  scoping still applies to every provider.
+
+Other changes:
+
+- Added `ARGOS_GITHUB_TOKEN` and `ARGOS_SEMANTIC_SCHOLAR_KEY`. Both are
+  optional; keyless remains the default.
+- Added a per-upstream pacing gate so GDELT's five-second floor is respected
+  locally instead of being paid for with 429s.
+- Snippet assembly now dedupes repeated punctuation in the shared funnel. Free
+  text from upstreams usually ends in its own full stop, which produced
+  "Author, One.. Journal." in every adapter.
+
+Bugs found by smoke testing real payloads:
+
+- Crossref's `/works` rejects the `page` parameter with HTTP 400; pagination is
+  now `offset`-based.
+- OpenAlex sends explicit JSON `null` for sparse records, which aborted the
+  whole response under a strict field type.
+- Crossref writes `DOI` and `URL` in upper case; serde is case-sensitive, so the
+  parse silently produced zero results.
+- PubMed's `esummary` envelope carries a `uids` array beside the documents.
+  Serde reads a JSON sequence into a struct without complaint, so that array
+  decoded as a paper titled with its first PMID. Only objects are documents now.
+
+## 0.4.0 - public API adapters and fusion hardening## 0.4.0 — public API adapters and fusion hardening
 
 - Added keyless public API adapters for the `academic` profile: **OpenAlex**, **Crossref** and **arXiv**, each with a pure fixture-tested parser.
 - Added the `profile` argument to `search`: `general` (DuckDuckGo, Bing, Brave, optional SearXNG) and `academic` (OpenAlex, Crossref, arXiv). Profiles are disjoint families, and an unknown profile is rejected before any provider is contacted.

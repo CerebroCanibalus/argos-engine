@@ -1,24 +1,31 @@
 use flojo_mcp::prelude::*;
 
 use crate::config::Config;
-use crate::providers::SearchProvider;
-use crate::providers::fanout::Fanout;
-use crate::providers::searxng::SearxNgProvider;
+use crate::metasearch::{DEFAULT_PROFILE, MetasearchRouter};
 use crate::types::Status;
 
 #[tool(
-    description = "Engine status: version, configured providers with reachability probes, and the optional SearXNG endpoint"
+    description = "Engine status: version, the configured SearXNG endpoint, and reachability probes for the providers of one profile. `profile` accepts 'general' (default), 'academic', 'code', 'news' or 'knowledge'; only that profile's providers are probed, so status stays cheap and does not spend quota on families the caller is not searching."
 )]
-pub async fn status() -> Result<Status, ToolError> {
+pub async fn status(profile: Option<String>) -> Result<Status, ToolError> {
     let config = Config::from_env();
-    let fanout = Fanout::from_config(&config);
-    let providers = fanout.probes().await;
-    let searxng_reachable = SearxNgProvider::new(config.clone()).health().await;
+    let profile = profile
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(DEFAULT_PROFILE)
+        .to_ascii_lowercase();
+
+    // The router validates the profile and exposes exactly the members it would
+    // search, so the probes match what a search would actually use.
+    let router = MetasearchRouter::for_profile(&config, &profile)?;
+    let searxng_reachable = router.searxng_reachable().await;
     Ok(Status {
         name: "argos-engine".into(),
         version: env!("CARGO_PKG_VERSION").into(),
+        profile,
         searxng_url: config.searxng_url,
         searxng_reachable,
-        providers,
+        providers: router.probes().await,
     })
 }

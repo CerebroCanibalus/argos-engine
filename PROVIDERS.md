@@ -54,22 +54,22 @@ real de cada provider.
 | # | Adapter | Categor√≠a | Auth | Pol√≠tica | Notas |
 |---:|---|---|---|---|---|
 | 18 | `openalex` | Academic | key opcional | `P1_PUBLIC_API` | **implementado v0.4.0**. Papers, DOI, abstracts (Ìndice invertido reconstruido), citas |
-| 19 | `semantic_scholar` | Academic | key opcional | `P1_PUBLIC_API` | Discovery, citations, papers relacionados |
+| 19 | `semantic_scholar` | Academic | key opcional | `P1_PUBLIC_API` | **implementado v0.5.0**. AnÛnimo llega a 429 desde esta IP; `ARGOS_SEMANTIC_SCHOLAR_KEY` |
 | 20 | `crossref` | Academic metadata | ninguna | `P1_PUBLIC_API` | DOI y metadata can√≥nica |
-| 21 | `europe_pmc` | Biomed/life sciences | ninguna | `P1_VERTICAL` | REST/OAI/full-text parcial |
+| 21 | `europe_pmc` | Biomed/life sciences | ninguna | `P1_VERTICAL` | **implementado v0.5.0**. Requiere `resultType=core` para abstracts |
 | 22 | `pubmed_eutils` | Biomed | key opcional | `P1_VERTICAL` | Alta precisi√≥n vertical |
 | 23 | `arxiv` | Preprints | ninguna | `P1_PUBLIC_API` | API p√∫blica; aplicar pacing |
 | 24 | `doaj` | Open access | ninguna | `P1_PUBLIC_API` | Journals y art√≠culos OA |
-| 25 | `gdelt_doc` | Global news | ninguna | `P1_VERTICAL` | Tres meses de news, URLs/fechas/idioma |
+| 25 | `gdelt_doc` | Global news | ninguna | `P1_VERTICAL` | **implementado v0.5.0** como `gdelt`. Exige 1 peticiÛn cada 5s; sin paginaciÛn real |
 
 ### C. C√≥digo, paquetes y local
 
 | # | Adapter | Categor√≠a | Auth | Pol√≠tica | Notas |
 |---:|---|---|---|---|---|
-| 26 | `github_search` | Code/repos | token opcional; code requiere token | `P1_VERTICAL` | Repo/issues keyless limitado; code autenticado |
+| 26 | `github_search` | Code/repos | token opcional | `P1_VERTICAL` | **implementado v0.5.0** como `github`. AnÛnimo 60/h; b˙squeda de cÛdigo sÌ exige token |
 | 27 | `sourcegraph` | Cross-repo code | token | `P2_USER_KEY` | Alta calidad de b√∫squeda de c√≥digo |
 | 28 | `package_registries` | npm/crates/Packagist/Maven/Repology | normalmente ninguna | `P1_VERTICAL` | Implementar como familia, no como un fetch √∫nico |
-| 29 | `wikimedia_knowledge` | Wikipedia/Wikidata/Open Library | ninguna | `P1_VERTICAL` | Entidades, aliases, libros; no web ranking |
+| 29 | `wikimedia_knowledge` | Wikipedia/Wikidata/Open Library | ninguna | `P1_VERTICAL` | **wikipedia implementado v0.5.0** como `wikimedia`; Wikidata y Open Library pendientes |
 | 30 | `local_search` | Self-hosted | seg√∫n backend | `LOCAL_ONLY` | YaCy, Meilisearch, ES, Solr, SQLite/FTS |
 
 ## Perfiles iniciales

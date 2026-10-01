@@ -17,10 +17,21 @@ use crate::providers::SearchProvider;
 use crate::providers::arxiv::ArxivProvider;
 use crate::providers::bing::BingProvider;
 use crate::providers::brave::BraveProvider;
+use crate::providers::crates::CratesProvider;
 use crate::providers::crossref::CrossrefProvider;
+use crate::providers::doaj::DoajProvider;
 use crate::providers::duckduckgo::DuckDuckGoProvider;
+use crate::providers::europepmc::EuropePmcProvider;
+use crate::providers::gdelt::GdeltProvider;
+use crate::providers::github::GitHubProvider;
+use crate::providers::npm::NpmProvider;
 use crate::providers::openalex::OpenAlexProvider;
+use crate::providers::packagist::PackagistProvider;
+use crate::providers::provider_trusts_relevance;
+use crate::providers::pubmed::PubmedProvider;
 use crate::providers::searxng::SearxNgProvider;
+use crate::providers::semantic_scholar::SemanticScholarProvider;
+use crate::providers::wikimedia::WikimediaProvider;
 use crate::quality;
 use crate::types::{ProviderEntry, ProviderHealth, ProviderStatus, SearchOutcome, SearchResult};
 
@@ -75,6 +86,38 @@ impl Fanout {
                 "arxiv" => {
                     providers.push((name.clone(), Box::new(ArxivProvider::new(config.clone()))))
                 }
+                "semantic_scholar" => providers.push((
+                    name.clone(),
+                    Box::new(SemanticScholarProvider::new(config.clone())),
+                )),
+                "europe_pmc" => providers.push((
+                    name.clone(),
+                    Box::new(EuropePmcProvider::new(config.clone())),
+                )),
+                "doaj" => {
+                    providers.push((name.clone(), Box::new(DoajProvider::new(config.clone()))))
+                }
+                "pubmed" => {
+                    providers.push((name.clone(), Box::new(PubmedProvider::new(config.clone()))))
+                }
+                "github" => {
+                    providers.push((name.clone(), Box::new(GitHubProvider::new(config.clone()))))
+                }
+                "crates" => {
+                    providers.push((name.clone(), Box::new(CratesProvider::new(config.clone()))))
+                }
+                "npm" => providers.push((name.clone(), Box::new(NpmProvider::new(config.clone())))),
+                "packagist" => providers.push((
+                    name.clone(),
+                    Box::new(PackagistProvider::new(config.clone())),
+                )),
+                "wikimedia" => providers.push((
+                    name.clone(),
+                    Box::new(WikimediaProvider::new(config.clone())),
+                )),
+                "gdelt" => {
+                    providers.push((name.clone(), Box::new(GdeltProvider::new(config.clone()))))
+                }
                 _ => {}
             }
         }
@@ -89,10 +132,14 @@ impl Fanout {
         Self { providers }
     }
 
-    /// Reachability of each configured provider, in order.
-    pub async fn probes(&self) -> Vec<ProviderHealth> {
+    /// Reachability of a chosen subset, so `status` never probes families the
+    /// caller is not searching.
+    pub async fn probes_selected(&self, selected: &[String]) -> Vec<ProviderHealth> {
         let mut health = Vec::with_capacity(self.providers.len());
         for (name, provider) in &self.providers {
+            if !selected.iter().any(|id| id == name) {
+                continue;
+            }
             health.push(ProviderHealth {
                 name: name.clone(),
                 reachable: provider.health().await,
@@ -228,7 +275,10 @@ impl Fanout {
                     let mut rejected = 0;
                     for result in results {
                         let in_scope = quality::matches_domains(&result.url, domains);
-                        let relevant = quality::is_relevant(relevance_query, result);
+                        // Curated APIs are already relevance-ranked; only the
+                        // HTML engines need the lexical drift guard.
+                        let relevant = provider_trusts_relevance(name)
+                            || quality::is_relevant(relevance_query, result);
                         if in_scope && relevant {
                             accepted.push(result.clone());
                         } else {
