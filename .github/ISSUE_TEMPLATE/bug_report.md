@@ -24,7 +24,6 @@ What you expected instead.
 
 - Argos Engine version: (`status` tool output)
 - OS: Windows / Linux / macOS
-- SearXNG setup: `docker compose -f searxng/docker-compose.yml up -d` / custom
 - MCP client: OpenCode / Claude Desktop / other
 
 **Additional context**

@@ -98,8 +98,13 @@ is explicit:
    opt-in experimental adapters; or
 2. add a remote keyless structured provider such as Tavily as a separate
    optional backend; or
-3. revive SearXNG when its cost is acceptable, because it can expose many
-   independent engines behind one auditable adapter.
+3. ~~revive SearXNG when its cost is acceptable, because it can expose many
+   independent engines behind one auditable adapter.~~ **Rejected
+   (2026-10-03)**: the adapter was removed outright. Its own upstream
+   documentation admits SearXNG is bot-classified and receives CAPTCHAs, so it
+   did not buy an independent index — only an indirection layer over the same
+   wall, plus a WSL2 lifecycle, six environment variables and four error
+   variants for an instance that was never provisioned here.
 
 The current release keeps the existing provider list for compatibility, but
 Argos no longer claims that every HTTP 200 provider contributes usable

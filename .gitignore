@@ -30,5 +30,3 @@ Thumbs.db
 tmp/
 .temp/
 
-# Local SearXNG runtime data
-searxng/searxng-data/

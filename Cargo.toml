@@ -4,10 +4,10 @@ version = "0.7.0"
 edition = "2024"
 rust-version = "1.89"
 license = "GPL-3.0-only"
-description = "Token-efficient, local-first web research MCP server in Rust, backed by your own SearXNG"
+description = "Token-efficient, local-first web research MCP server in Rust: keyless multi-profile metasearch"
 repository = "https://github.com/CerebroCanibalus/argos-engine"
 readme = "README.md"
-keywords = ["mcp", "search", "searxng", "research", "metasearch"]
+keywords = ["mcp", "search", "research", "metasearch", "keyless"]
 categories = ["command-line-utilities"]
 
 [dependencies]
