@@ -53,20 +53,20 @@ real de cada provider.
 
 | # | Adapter | CategorÃ­a | Auth | PolÃ­tica | Notas |
 |---:|---|---|---|---|---|
-| 18 | `openalex` | Academic | key opcional | `P1_PUBLIC_API` | **implementado v0.4.0**. Papers, DOI, abstracts (índice invertido reconstruido), citas |
-| 19 | `semantic_scholar` | Academic | key opcional | `P1_PUBLIC_API` | **implementado v0.5.0**. Anónimo llega a 429 desde esta IP; `ARGOS_SEMANTIC_SCHOLAR_KEY` |
+| 18 | `openalex` | Academic | key opcional | `P1_PUBLIC_API` | **implementado v0.4.0**. Papers, DOI, abstracts (ï¿½ndice invertido reconstruido), citas |
+| 19 | `semantic_scholar` | Academic | key opcional | `P1_PUBLIC_API` | **implementado v0.5.0**. Anï¿½nimo llega a 429 desde esta IP; `ARGOS_SEMANTIC_SCHOLAR_KEY` |
 | 20 | `crossref` | Academic metadata | ninguna | `P1_PUBLIC_API` | DOI y metadata canÃ³nica |
 | 21 | `europe_pmc` | Biomed/life sciences | ninguna | `P1_VERTICAL` | **implementado v0.5.0**. Requiere `resultType=core` para abstracts |
 | 22 | `pubmed_eutils` | Biomed | key opcional | `P1_VERTICAL` | Alta precisiÃ³n vertical |
 | 23 | `arxiv` | Preprints | ninguna | `P1_PUBLIC_API` | API pÃºblica; aplicar pacing |
 | 24 | `doaj` | Open access | ninguna | `P1_PUBLIC_API` | Journals y artÃ­culos OA |
-| 25 | `gdelt_doc` | Global news | ninguna | `P1_VERTICAL` | **implementado v0.5.0** como `gdelt`. Exige 1 petición cada 5s; sin paginación real |
+| 25 | `gdelt_doc` | Global news | ninguna | `P1_VERTICAL` | **implementado v0.5.0** como `gdelt`. Exige 1 peticiï¿½n cada 5s; sin paginaciï¿½n real |
 
 ### C. CÃ³digo, paquetes y local
 
 | # | Adapter | CategorÃ­a | Auth | PolÃ­tica | Notas |
 |---:|---|---|---|---|---|
-| 26 | `github_search` | Code/repos | token opcional | `P1_VERTICAL` | **implementado v0.5.0** como `github`. Anónimo 60/h; búsqueda de código sí exige token |
+| 26 | `github_search` | Code/repos | token opcional | `P1_VERTICAL` | **implementado v0.5.0** como `github`. Anï¿½nimo 60/h; bï¿½squeda de cï¿½digo sï¿½ exige token |
 | 27 | `sourcegraph` | Cross-repo code | token | `P2_USER_KEY` | Alta calidad de bÃºsqueda de cÃ³digo |
 | 28 | `package_registries` | npm/crates/Packagist/Maven/Repology | normalmente ninguna | `P1_VERTICAL` | Implementar como familia, no como un fetch Ãºnico |
 | 29 | `wikimedia_knowledge` | Wikipedia/Wikidata/Open Library | ninguna | `P1_VERTICAL` | **wikipedia implementado v0.5.0** como `wikimedia`; Wikidata y Open Library pendientes |
@@ -88,10 +88,10 @@ providers = ["github_search", "sourcegraph", "package_registries", "gitlab", "gi
 providers = ["gdelt_doc", "tavily_search", "brave_api"]
 
 [profiles.local]
-providers = ["local_search", "searxng", "wikimedia_knowledge"]
+providers = ["local_search", "wikimedia_knowledge"]
 ```
 
-`firecrawl`, `gitlab`, `gitea` y `searxng` pueden estar disponibles aunque no
+`firecrawl`, `gitlab` y `gitea` pueden estar disponibles aunque no
 sean clave-less; el selector sÃ³lo los usa si la configuraciÃ³n del usuario los
 habilita.
 

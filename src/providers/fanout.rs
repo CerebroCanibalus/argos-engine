@@ -29,7 +29,6 @@ use crate::providers::openalex::OpenAlexProvider;
 use crate::providers::packagist::PackagistProvider;
 use crate::providers::provider_trusts_relevance;
 use crate::providers::pubmed::PubmedProvider;
-use crate::providers::searxng::SearxNgProvider;
 use crate::providers::semantic_scholar::SemanticScholarProvider;
 use crate::providers::wikimedia::WikimediaProvider;
 use crate::quality;
@@ -72,9 +71,7 @@ impl Fanout {
                 "brave" => {
                     providers.push((name.clone(), Box::new(BraveProvider::new(config.clone()))))
                 }
-                "searxng" => {
-                    providers.push((name.clone(), Box::new(SearxNgProvider::new(config.clone()))))
-                }
+
                 "openalex" => providers.push((
                     name.clone(),
                     Box::new(OpenAlexProvider::new(config.clone())),
@@ -447,7 +444,7 @@ fn rrf_merge(views: &[ProviderView<'_>], limit: usize) -> Vec<SearchResult> {
 fn provider_weight(name: &str) -> f64 {
     match name {
         "bing" => 0.45,
-        "duckduckgo" | "searxng" => 0.9,
+        "duckduckgo" => 0.9,
         _ => 1.0,
     }
 }

@@ -4,12 +4,25 @@ All notable Argos Engine changes are recorded here.
 
 ## Unreleased
 
+- Removed the SearXNG adapter and the entire WSL2 stack lifecycle it required.
+  It was opt-in, never provisioned on this machine (`searxng_reachable` was always
+  false), and it was the largest single source of complexity in the crate: `stack.rs`
+  plus boot/idle/watchdog state, 6 environment variables, and 4 error variants.
+  With 16 adapters behind five profiles the router already owns what it was meant
+  to provide, and the upstream docs admit SearXNG itself is bot-classified.
+  Removed: `src/providers/searxng.rs`, `src/stack.rs`, `searxng/`, the
+  `searxng_search.json` fixture, `Config.searxng_url/auto_start/boot_timeout/`
+  `idle_stop/wsl_distro/stack_script`, `ARGOS_SEARXNG_URL`, `ARGOS_AUTO_START`,
+  `ARGOS_IDLE_STOP_SECS`, `ARGOS_BOOT_TIMEOUT_SECS`, `ARGOS_WSL_DISTRO`,
+  `ARGOS_STACK_SCRIPT`, and the `Down`/`Http`/`StackBoot`/`StackStarting` errors.
+  `status` no longer returns `searxng_url` or `searxng_reachable`.
+- Corrected `SECURITY.md` and `CONTRIBUTING.md`, which still described the default
+  path as local SearXNG while it has been remote keyless providers since v0.1.0.
 - Declared all four MCP tool annotations on both tools (`readOnlyHint`,
   `destructiveHint`, `idempotentHint`, `openWorldHint`). Hosts can now warn the
   user before invoking a tool instead of guessing from the description, and
   directories that require them accept the server.
-  `search` is marked read-only even though the optional SearXNG adapter can boot
-  a local WSL2 stack on demand: no caller-visible state is mutated, and marking
+  `search` is marked read-only: no caller-visible state is mutated, and marking
   every search as mutating would make every host warn on every query.
 - Added `tests/e2e_stdio.rs`, which spawns the real binary and speaks NDJSON
   over stdio like an MCP host. It pins the `initialize` version against

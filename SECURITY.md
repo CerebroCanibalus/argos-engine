@@ -16,6 +16,13 @@ Expected response time: best effort within 7 days.
 
 ## Scope notes
 
-- Argos Engine talks to a **local SearXNG instance** by default (`127.0.0.1:8080`). Treat any config that exposes SearXNG or points `ARGOS_SEARXNG_URL` at untrusted hosts as security-sensitive.
-- Never commit API keys. Future cloud providers (M3+) must read credentials from environment variables only.
-- The binary has no telemetry and makes no network requests beyond the configured SearXNG URL (and, in later milestones, URLs you explicitly ask it to fetch).
+- Argos Engine sends your **query text** to the configured public search
+  providers over HTTPS (DuckDuckGo, Bing, Brave and the keyless public APIs by
+  default). There is no local index: a search is only private to the extent
+  those providers make it so. Pointing `ARGOS_PROVIDERS` at a different set
+  changes where queries go.
+- Optional credentials (`ARGOS_GITHUB_TOKEN`, `ARGOS_SEMANTIC_SCHOLAR_KEY`,
+  `ARGOS_CONTACT_EMAIL`) are read from environment variables only. They must
+  never be committed, logged, or echoed into an error hint.
+- The binary has no telemetry. Its network traffic is limited to the providers
+  listed in `ARGOS_PROVIDERS`.

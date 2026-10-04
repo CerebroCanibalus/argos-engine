@@ -14,13 +14,6 @@ pub enum ArgosError {
     #[error("invalid query: {0}")]
     InvalidQuery(String),
 
-    /// The instance exists but nothing is listening (connection refused).
-    #[error("SearXNG is not running at {base}")]
-    Down {
-        /// Configured base URL.
-        base: String,
-    },
-
     /// A provider did not answer within the timeout or transport failed.
     #[error("{origin} unreachable: {cause}")]
     Unreachable {
@@ -68,32 +61,9 @@ pub enum ArgosError {
         providers: Vec<String>,
     },
 
-    /// SearXNG answered with a non-200 status.
-    #[error("SearXNG returned HTTP {status}")]
-    Http {
-        /// HTTP status code.
-        status: u16,
-        /// Actionable hint for the operator.
-        hint: &'static str,
-    },
-
     /// The payload did not match the expected contract.
     #[error("unexpected payload: {0}")]
     Decode(String),
-
-    /// The on-demand stack boot failed before the budget elapsed.
-    #[error("SearXNG stack failed to start: {detail}")]
-    StackBoot {
-        /// Why the boot attempt failed.
-        detail: String,
-    },
-
-    /// The stack is still booting after the configured budget.
-    #[error("SearXNG stack is still starting after {secs}s")]
-    StackStarting {
-        /// Seconds waited so far.
-        secs: u64,
-    },
 }
 
 impl From<ArgosError> for ToolError {
@@ -106,9 +76,6 @@ impl From<ArgosError> for ToolError {
         };
         match &error {
             ArgosError::InvalidQuery(_) => tool_error,
-            ArgosError::Down { .. } => tool_error.with_data(json!({
-                "hint": "Auto-start is enabled by default (ARGOS_AUTO_START=1). If the one-time provisioning is missing, run searxng\\wsl-setup.bat once as admin; afterwards searxng\\wsl-up.bat starts the stack manually.",
-            })),
             ArgosError::Unreachable { .. } => tool_error.with_data(json!({
                 "hint": "Network problem with this provider. Providers are independent: the fanout keeps going if another one answers - check ARGOS_PROVIDERS.",
             })),
@@ -135,13 +102,6 @@ impl From<ArgosError> for ToolError {
                 "hint": "All configured providers are temporarily unavailable. Argos will retry them after their cooldown; inspect provider status or add another configured provider.",
                 "providers": providers,
             })),
-            ArgosError::Http { hint, .. } => tool_error.with_data(json!({ "hint": hint })),
-            ArgosError::StackBoot { .. } => tool_error.with_data(json!({
-                "hint": "Run searxng\\wsl-setup.bat once as admin to provision the optional SearXNG stack, or start manually with searxng\\wsl-up.bat to see the full output.",
-            })),
-            ArgosError::StackStarting { .. } => tool_error.with_data(json!({
-                "hint": "Boot continues in the background; retry the search in a few seconds.",
-            })),
             ArgosError::Decode(_) => tool_error,
         }
     }
@@ -156,22 +116,6 @@ mod tests {
         let error: ToolError = ArgosError::InvalidQuery("query must not be empty".into()).into();
         let data = error.to_error_data();
         assert_eq!(data.message, "invalid query: query must not be empty");
-    }
-
-    #[test]
-    fn down_carries_provisioning_hint() {
-        let error: ToolError = ArgosError::Down {
-            base: "http://127.0.0.1:8080".into(),
-        }
-        .into();
-        let data = error.to_error_data();
-        assert!(data.message.contains("not running"));
-        let hint = data.data.expect("hint payload expected")["hint"]
-            .as_str()
-            .unwrap_or_default()
-            .to_string();
-        assert!(hint.contains("wsl-setup.bat"));
-        assert!(hint.contains("ARGOS_AUTO_START"));
     }
 
     #[test]
@@ -267,29 +211,5 @@ mod tests {
                 .unwrap_or_default()
                 .contains("cooldown")
         );
-    }
-
-    #[test]
-    fn http_error_carries_operator_hint() {
-        let error: ToolError = ArgosError::Http {
-            status: 403,
-            hint: "check settings",
-        }
-        .into();
-        let data = error.to_error_data();
-        assert!(data.message.contains("403"));
-        assert_eq!(data.data.expect("hint payload")["hint"], "check settings");
-    }
-
-    #[test]
-    fn stack_starting_suggests_retry() {
-        let error: ToolError = ArgosError::StackStarting { secs: 60 }.into();
-        let data = error.to_error_data();
-        assert!(data.message.contains("still starting"));
-        let hint = data.data.expect("hint payload expected")["hint"]
-            .as_str()
-            .unwrap_or_default()
-            .to_string();
-        assert!(hint.contains("retry"));
     }
 }

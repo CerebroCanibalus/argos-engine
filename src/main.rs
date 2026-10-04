@@ -9,7 +9,6 @@ mod limits;
 mod metasearch;
 mod providers;
 mod quality;
-mod stack;
 mod tools;
 mod types;
 
@@ -18,7 +17,7 @@ use flojo_mcp::prelude::*;
 // The `version` here is a literal because the attribute only accepts one, so it
 // can drift from Cargo.toml. `handshake_version_matches_the_crate_version`
 // keeps the two honest; the `status` tool reads `CARGO_PKG_VERSION` directly.
-#[flojo_mcp(name = "argos-engine", version = "0.6.0")]
+#[flojo_mcp(name = "argos-engine", version = "0.7.0")]
 struct ArgosEngine;
 
 #[tokio::main]
@@ -51,7 +50,6 @@ mod tests {
         let status: Status = tester.call_typed("status", json!({})).await.unwrap();
         assert_eq!(status.name, "argos-engine");
         assert_eq!(status.version, env!("CARGO_PKG_VERSION"));
-        assert!(status.searxng_url.starts_with("http"));
     }
 
     #[tokio::test]

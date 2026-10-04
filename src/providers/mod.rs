@@ -24,7 +24,6 @@ pub mod npm;
 pub mod openalex;
 pub mod packagist;
 pub mod pubmed;
-pub mod searxng;
 pub mod semantic_scholar;
 pub mod wikimedia;
 
@@ -132,7 +131,7 @@ fn tidy_punctuation(joined: &str) -> String {
 ///
 /// Domain scoping still applies everywhere; only the lexical filter is skipped.
 pub(crate) fn provider_trusts_relevance(name: &str) -> bool {
-    !matches!(name, "duckduckgo" | "bing" | "brave" | "searxng")
+    !matches!(name, "duckduckgo" | "bing" | "brave")
 }
 
 /// Assemble a compact, truncated [`SearchResult`] from collected parts.
@@ -284,7 +283,7 @@ mod tests {
     #[test]
     fn curated_apis_skip_the_lexical_drift_guard() {
         // HTML pages drift, curated indexes do not.
-        for html in ["duckduckgo", "bing", "brave", "searxng"] {
+        for html in ["duckduckgo", "bing", "brave"] {
             assert!(
                 !provider_trusts_relevance(html),
                 "{html} must keep the lexical gate"

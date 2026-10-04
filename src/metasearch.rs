@@ -417,7 +417,6 @@ impl ProviderRegistry {
 pub struct MetasearchRouter {
     registry: ProviderRegistry,
     fanout: Fanout,
-    config: Config,
     cache: SharedSearchCache,
     cache_locks: SharedSearchLocks,
 }
@@ -426,34 +425,17 @@ impl MetasearchRouter {
     /// Build the router for a named profile, rejecting unknown profiles before
     /// any network access so a typo never burns provider quota.
     pub fn for_profile(config: &Config, profile: &str) -> Result<Self, ArgosError> {
-        Ok(Self::build(
-            ProviderRegistry::for_profile(config, profile)?,
-            Fanout::from_config(config),
-            config.clone(),
-        ))
-    }
-
-    fn build(registry: ProviderRegistry, fanout: Fanout, config: Config) -> Self {
-        Self {
-            registry,
-            fanout,
-            config,
+        Ok(Self {
+            registry: ProviderRegistry::for_profile(config, profile)?,
+            fanout: Fanout::from_config(config),
             cache: shared_search_cache(),
             cache_locks: shared_search_locks(),
-        }
+        })
     }
 
     /// Reachability probes restricted to this router's profile members.
     pub async fn probes(&self) -> Vec<crate::types::ProviderHealth> {
         self.fanout.probes_selected(&self.registry.members()).await
-    }
-
-    /// Whether the optional local SearXNG stack answers.
-    pub async fn searxng_reachable(&self) -> bool {
-        use crate::providers::SearchProvider as _;
-        crate::providers::searxng::SearxNgProvider::new(self.config.clone())
-            .health()
-            .await
     }
 
     pub async fn run(
@@ -671,14 +653,6 @@ fn builtin_manifest(id: &str) -> Option<ProviderManifest> {
             "brave",
             60,
             vec![ProviderCategory::General],
-        ),
-        "searxng" => (
-            ProviderKind::Aggregator,
-            ProviderPolicy::LocalOnly,
-            CostClass::UserInfrastructure,
-            "multi",
-            80,
-            vec![ProviderCategory::General, ProviderCategory::Local],
         ),
         // Public bibliographic APIs. Distinct index families on purpose: RRF
         // only rewards agreement when the agreeing sources are independent.

@@ -15,13 +15,13 @@ Thanks for your interest in contributing.
 
 ## Guidelines
 
-- Rust edition 2024, `rust-version = 1.85`. `clippy -D warnings` must pass.
+- Rust edition 2024, `rust-version = 1.89` (primp's floor). `clippy -D warnings` must pass.
 - Public items need doc comments; keep tool descriptions short and agent-friendly.
 - Tool errors must be actionable: real message + hint, never generic text.
 - Token efficiency is a feature: prefer compact payloads, truncation, dedup.
-- No API keys in core: the default path stays local (SearXNG). Cloud providers belong behind the `SearchProvider` trait (M3+).
+- No API keys in core: the default path is keyless public providers. Keyed providers stay opt-in behind the `SearchProvider` trait.
 - Decision changes go through issues first, then update `AGENTS.md`.
 
 ## Reporting bugs
 
-Use the [bug report template](.github/ISSUE_TEMPLATE/bug_report.md). Include engine version, OS, SearXNG setup, and exact tool error output.
+Use the [bug report template](.github/ISSUE_TEMPLATE/bug_report.md). Include engine version, OS, `ARGOS_PROVIDERS`, and exact tool error output.

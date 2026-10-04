@@ -10,13 +10,13 @@ Search MCPs force a bad trade: scrape fragile engines yourself, rent an API key,
 
 - **Keyless by default**: DuckDuckGo, Bing and Brave HTML endpoints queried directly from Rust for compatibility. No accounts, no cards, no Docker, no WSL. The direct HTML set is experimental: see the measured quality and policy caveats below before treating it as a durable index.
 - **Browser impersonation**: the HTTP layer ([primp](https://github.com/deedy5/primp), same crate ddgs uses) masquerades as Chrome153/Windows — measured difference: without it Bing serves a `302` to its homepage and Brave returns `429`; with it all three engines answer `200`.
-- **Fanout with failover**: all providers queried in parallel, results merged round-robin and deduplicated by URL. When one engine rate-limits your IP (202/403/429 happen — see below), **the others still answer**: research degrades, it doesn't die.
+- **Fanout with failover**: all providers queried in parallel, results fused with weighted RRF and deduplicated by canonical URL. When one engine rate-limits your IP (202/403/429 happen — see below), **the others still answer**: research degrades, it doesn't die.
 - **Tokens are a feature**: compact results, server-side truncation budgets (`src/limits.rs`), dedup before the agent ever sees duplicates.
 - **No silent failures**: every `search` response carries the per-provider status (`ok`, `empty`, `filtered`, `rate_limited`, `unreachable`) and the warnings. If all engines were throttled, the tool returns a typed `AllProvidersRateLimited` error; if providers answered but every result failed Argos' domain/relevance gate, it returns `NoUsableResults` instead of pretending the topic had no hits.
-- **Honest, typed errors**: `rate_limited`, `unreachable`, `still starting`, `all_providers_rate_limited`, `no_usable_results` — each with an actionable hint, never a generic `Error executing tool` ghost.
+- **Honest, typed errors**: `rate_limited`, `unreachable`, `all_providers_rate_limited`, `no_usable_results` — each with an actionable hint, never a generic `Error executing tool` ghost.
 - **Per-provider visibility**: every `search` response carries `{ results, providers: [{name, kind}], warnings }` so the agent knows exactly which engines contributed, which were empty or filtered, and which errored.
 - **One small binary**: ~7 MB exe, ~5 ms startup, ~4 MB RAM — no Python/Node runtime.
-- **Optional SearXNG adapter**: already written for machines with Docker/WSL2 (70+ engines behind one JSON API) — off by default.
+
 
 ## Status
 
@@ -29,7 +29,7 @@ Early development — **Milestone 1: keyless multi-provider search**. Not produc
 | `status` with per-provider reachability probes | ✅ |
 | Typed errors with hints (`rate_limited`, `all_rate_limited`, `unreachable`, ...) | ✅ |
 | Real-markup fixture tests (captured HTML from live engines) | ✅ |
-| Optional SearXNG adapter + on-demand WSL2 stack lifecycle | ✅ (opt-in via `ARGOS_PROVIDERS`) |
+
 | More keyless providers | 📋 provider audit first; see [PROVIDER_AUDIT.md](PROVIDER_AUDIT.md) |
 | `research` tool: multi-query fan-out, progress + cancellation, compact digest | 📋 M2 |
 | Content extraction (readability → markdown, no XPath) | 📋 M3 |
@@ -39,7 +39,7 @@ Early development — **Milestone 1: keyless multi-provider search**. Not produc
 
 - Rust 1.89+ ([rustup](https://rustup.rs)) — primp's floor
 - Windows: VS Build Tools (the `.bat` scripts set up `VsDevCmd`); plain `cargo build` works on any platform.
-- **Nothing else** for the default path. Docker/WSL2 only if you opt into the SearXNG adapter.
+- **Nothing else**: no Docker, no WSL, no VM, no API keys.
 
 ## Quick start
 
@@ -58,23 +58,13 @@ Connect from `opencode.jsonc`:
 
 Or any MCP client (Claude Desktop, Cursor, Inspector…): command = the `argos-engine` binary, stdio transport.
 
-### Optional: the SearXNG adapter
-
-```bash
-# only if you want the70+ engine aggregator behind the same trait
-searxng\wsl-setup.bat        # Windows without Docker Desktop (WSL2, one-time, admin)
-# or, with a working Docker:
-docker compose -f searxng/docker-compose.yml up -d
-# then enable it:
-set ARGOS_PROVIDERS=duckduckgo,bing,searxng
-```
 
 ## Tools
 
 | Tool | Arguments | Returns |
 |---|---|---|
 | `search` | `query`, `limit?` (1-50, default 10), `page?`, `profile?` (`general`, `academic`, `code`, `news`, `knowledge`), `domains?` (`[String]`, e.g. `["kvrforums.com", "reddit.com"]`) | `{ results: [{ url, source, title, snippet, engine }], providers: [{name, kind: "ok"|"empty"|"filtered"|"rate_limited"|"unreachable", ...}], warnings: [...] }` |
-| `status` | `profile?` (same values) | `{ name, version, profile, searxng_url, searxng_reachable, providers: [{name, reachable}] }` |
+| `status` | `profile?` (same values) | `{ name, version, profile, providers: [{name, reachable}] }` |
 
 Both tools declare all four MCP annotations, so a client can tell before invoking
 that they are read-only, non-destructive, idempotent and open-world:
@@ -83,30 +73,22 @@ that they are read-only, non-destructive, idempotent and open-world:
 { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true }
 ```
 
-`search` is reported read-only even though the optional SearXNG adapter can boot
-a local WSL2 stack on demand: nothing the caller can observe is mutated, and
-marking every search as mutating would make every host warn on every query.
+`search` only reads: nothing the caller can observe is mutated, so a host can invoke it without warning.
 
 ### Configuration
 
 | Env var | Default | Meaning |
 |---|---|---|
-| `ARGOS_PROVIDERS` | 16 implemented adapters | Enabled adapters; the `profile` decides which family spends quota (adds `searxng` to opt in) |
+| `ARGOS_PROVIDERS` | 16 implemented adapters | Enabled adapters; the `profile` decides which family spends quota |
 | `ARGOS_CONTACT_EMAIL` | _(unset)_ | Optional contact address for the OpenAlex/Crossref/PubMed polite pools. Not a key, no account |
 | `ARGOS_GITHUB_TOKEN` | _(unset)_ | Optional token; raises the GitHub Search quota from 60/h |
 | `ARGOS_SEMANTIC_SCHOLAR_KEY` | _(unset)_ | Optional key; anonymous traffic is throttled hard |
 | `ARGOS_META_INITIAL` | `2` | Maximum providers in the first native metasearch wave |
 | `ARGOS_META_TOTAL` | `5` | Maximum providers considered across fallback waves |
-| `ARGOS_SEARXNG_URL` | `http://127.0.0.1:8080` | Adapter base URL |
-| `ARGOS_AUTO_START` | `1` | Boot the WSL2 stack on demand when the adapter is enabled and down |
-| `ARGOS_IDLE_STOP_SECS` | `300` | Terminate the stack after idle (`0` = keep) |
-| `ARGOS_BOOT_TIMEOUT_SECS` | `60` | Cold-boot budget before returning "still starting" |
-| `ARGOS_WSL_DISTRO` | `Ubuntu` | WSL distro hosting the adapter stack |
-| `ARGOS_STACK_SCRIPT` | auto | Path to `searxng/wsl-setup.sh` |
 
 ## The rate-limit reality (measured, not guessed)
 
-Anti-bot limits live in the **upstream engines**, not in your client — and *every* keyless approach shares that wall (SearXNG's own docs admit it gets CAPTCHAs too; its limiter exists to throttle *you*). Measurements from one residential IP,2026-09-24:
+Anti-bot limits live in the **upstream engines**, not in your client — and *every* keyless approach shares that wall — SearXNG's own docs admit it gets CAPTCHAs too, which is why the optional adapter was dropped. Measurements from one residential IP,2026-09-24:
 
 | Endpoint | Plain client (reqwest, rustls **and** schannel) | With primp (Chrome153 impersonation) |
 |---|---|---|
@@ -115,7 +97,7 @@ Anti-bot limits live in the **upstream engines**, not in your client — and *ev
 | `search.brave.com/search` | **429** | **200**,20 web results |
 | `www.mojeek.com/search` | CAPTCHA | CAPTCHA (IP/consent-based — out of the set) |
 
-Argos raises the ceiling with design instead of hoping: **browser impersonation at the transport layer**, **parallel fanout across independent rate budgets**, fair merge + URL dedup (fewer redundant queries for the agent), per-request timeouts, typed rate-limit errors with failover, and — in the SearXNG adapter — on-demand lifecycle so nothing idles.
+Argos raises the ceiling with design instead of hoping: **browser impersonation at the transport layer**, **parallel fanout across independent rate budgets**, weighted RRF fusion + canonical URL dedup (fewer redundant queries for the agent), a short-lived cache with single-flight, per-request timeouts and typed rate-limit errors with failover.
 
 ## Quality reality (measured 2026-09-24)
 
@@ -164,4 +146,3 @@ GPL-3.0 — see [LICENSE](./LICENSE).
 
 - [FlojoMCP](https://github.com/CerebroCanibalus/FlojoMCP) — Rust MCP framework this server is built on.
 - [ddgs](https://github.com/deedy5/ddgs) — reference parsers and the pain points that shaped this design.
-- [SearXNG](https://github.com/searxng/searxng) — the optional metasearch adapter.
