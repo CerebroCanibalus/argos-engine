@@ -18,7 +18,7 @@ use flojo_mcp::prelude::*;
 // The `version` here is a literal because the attribute only accepts one, so it
 // can drift from Cargo.toml. `handshake_version_matches_the_crate_version`
 // keeps the two honest; the `status` tool reads `CARGO_PKG_VERSION` directly.
-#[flojo_mcp(name = "argos-engine", version = "0.5.0")]
+#[flojo_mcp(name = "argos-engine", version = "0.6.0")]
 struct ArgosEngine;
 
 #[tokio::main]

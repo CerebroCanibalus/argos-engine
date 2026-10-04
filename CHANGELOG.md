@@ -2,6 +2,24 @@
 
 All notable Argos Engine changes are recorded here.
 
+## Unreleased
+
+- Declared all four MCP tool annotations on both tools (`readOnlyHint`,
+  `destructiveHint`, `idempotentHint`, `openWorldHint`). Hosts can now warn the
+  user before invoking a tool instead of guessing from the description, and
+  directories that require them accept the server.
+  `search` is marked read-only even though the optional SearXNG adapter can boot
+  a local WSL2 stack on demand: no caller-visible state is mutated, and marking
+  every search as mutating would make every host warn on every query.
+- Added `tests/e2e_stdio.rs`, which spawns the real binary and speaks NDJSON
+  over stdio like an MCP host. It pins the `initialize` version against
+  `CARGO_PKG_VERSION`, asserts the four annotations arrive over the wire, checks
+  the `status` shape, and proves the `search` argument validation runs before any
+  provider is contacted. The handshake previously shipped a hardcoded version
+  for two releases; this test is what stops that recurring.
+- Bumped `flojo-mcp` to `45eca6c`, which adds annotation support to the `#[tool]`
+  macro and the `FlojoTool` trait.
+
 ## 0.5.0 - academic wave 2 and the code profile
 
 - Fixed the MCP `initialize` handshake, which advertised a hardcoded `0.3.0`:

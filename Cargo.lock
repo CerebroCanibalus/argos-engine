@@ -78,7 +78,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "argos-engine"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "base64 0.22.1",
  "flojo-mcp",
@@ -573,7 +573,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -613,7 +613,7 @@ dependencies = [
 [[package]]
 name = "flojo-macros"
 version = "0.1.0"
-source = "git+https://github.com/CerebroCanibalus/FlojoMCP#756d0590e63ac69c44580226463379a7a30c9e5a"
+source = "git+https://github.com/CerebroCanibalus/FlojoMCP#45eca6cfa5c420b10cf47b7e988f7c8c77be2bd9"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -624,7 +624,7 @@ dependencies = [
 [[package]]
 name = "flojo-mcp"
 version = "0.1.0"
-source = "git+https://github.com/CerebroCanibalus/FlojoMCP#756d0590e63ac69c44580226463379a7a30c9e5a"
+source = "git+https://github.com/CerebroCanibalus/FlojoMCP#45eca6cfa5c420b10cf47b7e988f7c8c77be2bd9"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1950,7 +1950,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2378,7 +2378,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

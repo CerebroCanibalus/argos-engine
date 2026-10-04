@@ -74,7 +74,18 @@ set ARGOS_PROVIDERS=duckduckgo,bing,searxng
 | Tool | Arguments | Returns |
 |---|---|---|
 | `search` | `query`, `limit?` (1-50, default 10), `page?`, `profile?` (`general`, `academic`, `code`, `news`, `knowledge`), `domains?` (`[String]`, e.g. `["kvrforums.com", "reddit.com"]`) | `{ results: [{ url, source, title, snippet, engine }], providers: [{name, kind: "ok"|"empty"|"filtered"|"rate_limited"|"unreachable", ...}], warnings: [...] }` |
-| `status` | – | `{ name, version, searxng_url, searxng_reachable, providers: [{name, reachable}] }` |
+| `status` | `profile?` (same values) | `{ name, version, profile, searxng_url, searxng_reachable, providers: [{name, reachable}] }` |
+
+Both tools declare all four MCP annotations, so a client can tell before invoking
+that they are read-only, non-destructive, idempotent and open-world:
+
+```json
+{ "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true }
+```
+
+`search` is reported read-only even though the optional SearXNG adapter can boot
+a local WSL2 stack on demand: nothing the caller can observe is mutated, and
+marking every search as mutating would make every host warn on every query.
 
 ### Configuration
 

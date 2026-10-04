@@ -5,7 +5,11 @@ use crate::metasearch::{DEFAULT_PROFILE, MetasearchRouter};
 use crate::types::Status;
 
 #[tool(
-    description = "Engine status: version, the configured SearXNG endpoint, and reachability probes for the providers of one profile. `profile` accepts 'general' (default), 'academic', 'code', 'news' or 'knowledge'; only that profile's providers are probed, so status stays cheap and does not spend quota on families the caller is not searching."
+    description = "Engine status: version, the configured SearXNG endpoint, and reachability probes for the providers of one profile. `profile` accepts 'general' (default), 'academic', 'code', 'news' or 'knowledge'; only that profile's providers are probed, so status stays cheap and does not spend quota on families the caller is not searching.",
+    read_only_hint = true,
+    destructive_hint = false,
+    idempotent_hint = true,
+    open_world_hint = true
 )]
 pub async fn status(profile: Option<String>) -> Result<Status, ToolError> {
     let config = Config::from_env();
