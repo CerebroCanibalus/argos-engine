@@ -15,37 +15,57 @@ use crate::config::Config;
 use crate::error::ArgosError;
 use crate::providers::SearchProvider;
 use crate::providers::arxiv::ArxivProvider;
+use crate::providers::aur::AurProvider;
 use crate::providers::base::BaseProvider;
 use crate::providers::bing::BingProvider;
+use crate::providers::biorxiv::BioRxivProvider;
 use crate::providers::brave::BraveProvider;
+use crate::providers::clinicaltrials::ClinicalTrialsProvider;
+use crate::providers::coingecko::CoinGeckoProvider;
 use crate::providers::crates::CratesProvider;
 use crate::providers::crossref::CrossrefProvider;
+use crate::providers::datacite::DataCiteProvider;
 use crate::providers::dblp::DblpProvider;
 use crate::providers::devto::DevtoProvider;
 use crate::providers::doaj::DoajProvider;
+use crate::providers::dockerhub::DockerHubProvider;
 use crate::providers::duckduckgo::DuckDuckGoProvider;
 use crate::providers::europepmc::EuropePmcProvider;
+use crate::providers::figshare::FigshareProvider;
 use crate::providers::gdelt::GdeltProvider;
 use crate::providers::github::GitHubProvider;
+use crate::providers::gutendex::GutendexProvider;
 use crate::providers::hackernews::HackerNewsProvider;
+use crate::providers::hal::HalProvider;
 use crate::providers::hex::HexProvider;
+use crate::providers::homebrew::HomebrewProvider;
+use crate::providers::internetarchive::InternetArchiveProvider;
 use crate::providers::lobsters::LobstersProvider;
 use crate::providers::maven::MavenProvider;
+use crate::providers::metacpan::MetacpanProvider;
+use crate::providers::musicbrainz::MusicBrainzProvider;
+use crate::providers::nominatim::NominatimProvider;
 use crate::providers::npm::NpmProvider;
 use crate::providers::nuget::NugetProvider;
 use crate::providers::openaire::OpenaireProvider;
 use crate::providers::openalex::OpenAlexProvider;
+use crate::providers::openfoodfacts::OpenFoodFactsProvider;
 use crate::providers::openlibrary::OpenLibraryProvider;
 use crate::providers::orcid::OrcidProvider;
+use crate::providers::osf::OsfProvider;
 use crate::providers::packagist::PackagistProvider;
+use crate::providers::plos::PlosProvider;
 use crate::providers::provider_trusts_relevance;
 use crate::providers::pubmed::PubmedProvider;
 use crate::providers::reddit::RedditProvider;
+use crate::providers::restcountries::RestCountriesProvider;
 use crate::providers::rubygems::RubygemsProvider;
 use crate::providers::semantic_scholar::SemanticScholarProvider;
 use crate::providers::stackoverflow::StackOverflowProvider;
 use crate::providers::wikidata::WikidataProvider;
 use crate::providers::wikimedia::WikimediaProvider;
+use crate::providers::wordpress::WordPressProvider;
+use crate::providers::worldbank::WorldBankProvider;
 use crate::providers::zenodo::ZenodoProvider;
 use crate::quality;
 use crate::types::{ProviderEntry, ProviderHealth, ProviderStatus, SearchOutcome, SearchResult};
@@ -130,6 +150,75 @@ impl Fanout {
                 )),
                 "gdelt" => {
                     providers.push((name.clone(), Box::new(GdeltProvider::new(config.clone()))))
+                }
+                "internetarchive" => providers.push((
+                    name.clone(),
+                    Box::new(InternetArchiveProvider::new(config.clone())),
+                )),
+                "gutendex" => providers.push((
+                    name.clone(),
+                    Box::new(GutendexProvider::new(config.clone())),
+                )),
+                "nominatim" => providers.push((
+                    name.clone(),
+                    Box::new(NominatimProvider::new(config.clone())),
+                )),
+                "restcountries" => providers.push((
+                    name.clone(),
+                    Box::new(RestCountriesProvider::new(config.clone())),
+                )),
+                "musicbrainz" => providers.push((
+                    name.clone(),
+                    Box::new(MusicBrainzProvider::new(config.clone())),
+                )),
+                "openfoodfacts" => providers.push((
+                    name.clone(),
+                    Box::new(OpenFoodFactsProvider::new(config.clone())),
+                )),
+                "coingecko" => providers.push((
+                    name.clone(),
+                    Box::new(CoinGeckoProvider::new(config.clone())),
+                )),
+                "metacpan" => providers.push((
+                    name.clone(),
+                    Box::new(MetacpanProvider::new(config.clone())),
+                )),
+                "aur" => providers.push((name.clone(), Box::new(AurProvider::new(config.clone())))),
+                "dockerhub" => providers.push((
+                    name.clone(),
+                    Box::new(DockerHubProvider::new(config.clone())),
+                )),
+                "homebrew" => providers.push((
+                    name.clone(),
+                    Box::new(HomebrewProvider::new(config.clone())),
+                )),
+                "wordpress" => providers.push((
+                    name.clone(),
+                    Box::new(WordPressProvider::new(config.clone())),
+                )),
+                "biorxiv" => {
+                    providers.push((name.clone(), Box::new(BioRxivProvider::new(config.clone()))))
+                }
+                "figshare" => providers.push((
+                    name.clone(),
+                    Box::new(FigshareProvider::new(config.clone())),
+                )),
+                "datacite" => providers.push((
+                    name.clone(),
+                    Box::new(DataCiteProvider::new(config.clone())),
+                )),
+                "osf" => providers.push((name.clone(), Box::new(OsfProvider::new(config.clone())))),
+                "hal" => providers.push((name.clone(), Box::new(HalProvider::new(config.clone())))),
+                "clinicaltrials" => providers.push((
+                    name.clone(),
+                    Box::new(ClinicalTrialsProvider::new(config.clone())),
+                )),
+                "worldbank" => providers.push((
+                    name.clone(),
+                    Box::new(WorldBankProvider::new(config.clone())),
+                )),
+                "plos" => {
+                    providers.push((name.clone(), Box::new(PlosProvider::new(config.clone()))))
                 }
                 "base" => {
                     providers.push((name.clone(), Box::new(BaseProvider::new(config.clone()))))

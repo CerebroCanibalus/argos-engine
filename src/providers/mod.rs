@@ -10,37 +10,57 @@
 //! can fail over.
 
 pub mod arxiv;
+pub mod aur;
 pub mod base;
 pub mod bing;
+pub mod biorxiv;
 pub mod brave;
+pub mod clinicaltrials;
+pub mod coingecko;
 pub mod crates;
 pub mod crossref;
+pub mod datacite;
 pub mod dblp;
 pub mod devto;
 pub mod doaj;
+pub mod dockerhub;
 pub mod duckduckgo;
 pub mod europepmc;
 pub mod fanout;
+pub mod figshare;
 pub mod gdelt;
 pub mod github;
+pub mod gutendex;
 pub mod hackernews;
+pub mod hal;
 pub mod hex;
+pub mod homebrew;
+pub mod internetarchive;
 pub mod lobsters;
 pub mod maven;
+pub mod metacpan;
+pub mod musicbrainz;
+pub mod nominatim;
 pub mod npm;
 pub mod nuget;
 pub mod openaire;
 pub mod openalex;
+pub mod openfoodfacts;
 pub mod openlibrary;
 pub mod orcid;
+pub mod osf;
 pub mod packagist;
+pub mod plos;
 pub mod pubmed;
 pub mod reddit;
+pub mod restcountries;
 pub mod rubygems;
 pub mod semantic_scholar;
 pub mod stackoverflow;
 pub mod wikidata;
 pub mod wikimedia;
+pub mod wordpress;
+pub mod worldbank;
 pub mod zenodo;
 
 use std::collections::HashMap;
@@ -335,6 +355,26 @@ mod tests {
             "lobsters",
             "devto",
             "reddit",
+            "internetarchive",
+            "gutendex",
+            "nominatim",
+            "restcountries",
+            "musicbrainz",
+            "openfoodfacts",
+            "coingecko",
+            "metacpan",
+            "aur",
+            "dockerhub",
+            "homebrew",
+            "wordpress",
+            "biorxiv",
+            "figshare",
+            "datacite",
+            "osf",
+            "hal",
+            "clinicaltrials",
+            "worldbank",
+            "plos",
             "base",
             "dblp",
             "openaire",
