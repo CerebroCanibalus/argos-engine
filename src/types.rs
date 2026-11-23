@@ -16,6 +16,9 @@ pub struct SearchResult {
     pub snippet: String,
     /// Engine that produced the result (duckduckgo, bing, brave, ...)
     pub engine: Option<String>,
+    /// Publication/update date when the provider exposes one (ISO 8601 when possible)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub published_at: Option<String>,
 }
 
 /// Per-provider outcome for one [`search`] call.

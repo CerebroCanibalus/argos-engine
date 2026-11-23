@@ -585,8 +585,19 @@ fn cache_get(cache: &SharedSearchCache, key: &CacheKey) -> Option<SearchOutcome>
     cache.get(key).map(|entry| entry.outcome.clone())
 }
 
+fn cache_ttl_for_profile(profile: &str) -> Duration {
+    match profile {
+        "news" => Duration::from_secs(30),
+        "general" => Duration::from_secs(60),
+        "knowledge" => Duration::from_secs(180),
+        "academic" | "code" => Duration::from_secs(300),
+        _ => SEARCH_CACHE_TTL,
+    }
+}
+
 fn cache_put(cache: &SharedSearchCache, key: CacheKey, outcome: &SearchOutcome) {
     static SEQUENCE: AtomicU64 = AtomicU64::new(1);
+    let ttl = cache_ttl_for_profile(&key.profile);
     let mut cache = cache.lock().expect("search cache lock");
     let now = Instant::now();
     cache.retain(|_, entry| entry.expires_at > now);
@@ -604,7 +615,7 @@ fn cache_put(cache: &SharedSearchCache, key: CacheKey, outcome: &SearchOutcome) 
         key,
         CacheEntry {
             outcome: outcome.clone(),
-            expires_at: now + SEARCH_CACHE_TTL,
+            expires_at: now + ttl,
             sequence: SEQUENCE.fetch_add(1, Ordering::Relaxed),
         },
     );

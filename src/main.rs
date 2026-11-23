@@ -9,6 +9,7 @@ mod limits;
 mod metasearch;
 mod providers;
 mod quality;
+mod query_rewrite;
 mod tools;
 mod types;
 

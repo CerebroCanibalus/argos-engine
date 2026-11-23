@@ -84,7 +84,8 @@ pub fn parse_results(html: &str) -> Result<Vec<SearchResult>, ArgosError> {
             title: truncate_string(&title, TITLE_MAX_CHARS).0,
             snippet: truncate_string(&snippet, SNIPPET_MAX_CHARS).0,
             engine: Some(ENGINE.into()),
-        });
+            published_at: None,
+});
     }
     Ok(results)
 }

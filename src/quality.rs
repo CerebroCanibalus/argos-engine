@@ -137,7 +137,8 @@ mod tests {
             title: title.into(),
             snippet: snippet.into(),
             engine: Some("test".into()),
-        }
+            published_at: None,
+}
     }
 
     #[test]

@@ -197,7 +197,8 @@ pub(crate) fn build_result(engine: &str, url: &str, title: &str, snippet: &str) 
         )
         .0,
         engine: Some(engine.to_string()),
-    }
+        published_at: None,
+}
 }
 
 /// Map a non-success status from a public API onto Argos' typed errors.

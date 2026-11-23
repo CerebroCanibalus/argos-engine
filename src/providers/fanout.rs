@@ -614,7 +614,8 @@ fn rrf_merge(views: &[ProviderView<'_>], limit: usize) -> Vec<SearchResult> {
         let weight = provider_weight(&view.name) * quality;
         for (rank, result) in view.results.iter().enumerate() {
             let key = normalize_url(&result.url);
-            let contribution = weight / (RRF_K + rank as f64 + 1.0);
+            let authority = domain_authority(&host_of(&result.url));
+            let contribution = weight * authority / (RRF_K + rank as f64 + 1.0);
             let candidate = ranked.entry(key).or_insert_with(|| RankedCandidate {
                 result: result.clone(),
                 score: 0.0,
@@ -668,10 +669,120 @@ fn rrf_merge(views: &[ProviderView<'_>], limit: usize) -> Vec<SearchResult> {
 /// Measured on this machine: Brave's independent index was accurate, DDG was
 /// mixed, and Bing returned real HTML with poor semantic quality (a query for
 /// free piano VSTs surfaced games and unrelated tourist pages).
+/// Host extraction for authority scoring.
+fn host_of(url: &str) -> String {
+    url::Url::parse(url)
+        .ok()
+        .and_then(|p| p.host_str().map(|h| h.trim_start_matches("www.").to_ascii_lowercase()))
+        .unwrap_or_default()
+}
+
+/// Domain authority multiplier for high-trust sources.
+fn domain_authority(host: &str) -> f64 {
+    const HIGH: &[&str] = &[
+        "docs.rs",
+        "doc.rust-lang.org",
+        "crates.io",
+        "github.com",
+        "stackoverflow.com",
+        "serverfault.com",
+        "superuser.com",
+        "askubuntu.com",
+        "mathoverflow.net",
+        "physics.stackexchange.com",
+        "developer.mozilla.org",
+        "docs.python.org",
+        "docs.microsoft.com",
+        "learn.microsoft.com",
+        "wikipedia.org",
+        "wikidata.org",
+        "arxiv.org",
+        "pubmed.ncbi.nlm.nih.gov",
+        "ncbi.nlm.nih.gov",
+        "doi.org",
+        "semanticscholar.org",
+        "openalex.org",
+        "crossref.org",
+        "developer.apple.com",
+        "developer.android.com",
+    ];
+    if HIGH.iter().any(|d| host == *d || host.ends_with(&format!(".{d}"))) {
+        1.25
+    } else {
+        1.0
+    }
+}
+
 fn provider_weight(name: &str) -> f64 {
     match name {
+        // HTML engines: measured quality from the 2026-09-24 audit.
         "bing" => 0.45,
         "duckduckgo" => 0.9,
+        "brave" => 1.05,
+        // Curated academic indexes: high trust, distinct families.
+        "openalex" => 1.15,
+        "crossref" => 1.1,
+        "arxiv" => 1.05,
+        "pubmed" => 1.05,
+        "europe_pmc" => 1.0,
+        "semantic_scholar" => 0.95,
+        "dblp" => 1.05,
+        "base" => 0.95,
+        "openaire" => 0.95,
+        "zenodo" => 0.9,
+        "figshare" => 0.9,
+        "datacite" => 0.9,
+        "hal" => 0.9,
+        "osf" => 0.9,
+        "plos" => 0.95,
+        "biorxiv" => 0.9,
+        "orcid" => 0.85,
+        "clinicaltrials" => 0.85,
+        // Code registries.
+        "github" => 1.1,
+        "crates" => 1.05,
+        "npm" => 1.0,
+        "packagist" => 1.0,
+        "maven" => 1.0,
+        "nuget" => 1.0,
+        "rubygems" => 0.95,
+        "hex" => 0.95,
+        "stackoverflow" => 1.05,
+        "metacpan" => 0.95,
+        "aur" => 0.9,
+        "dockerhub" => 0.9,
+        "homebrew" => 0.9,
+        "conda" => 0.9,
+        "repology" => 0.9,
+        "wordpress" => 0.85,
+        "serverfault" | "superuser" | "askubuntu" => 1.0,
+        "mathoverflow" | "physics" => 1.0,
+        // Knowledge.
+        "wikimedia" => 1.05,
+        "wikidata" => 1.0,
+        "openlibrary" => 0.95,
+        "internetarchive" => 0.9,
+        "gutendex" => 0.9,
+        "dbpedia" => 0.9,
+        "wikisource" => 0.85,
+        "wikimediacommons" => 0.85,
+        "nominatim" => 0.9,
+        "restcountries" => 0.9,
+        "musicbrainz" => 0.9,
+        "openfoodfacts" => 0.9,
+        "coingecko" => 0.9,
+        "worldbank" => 0.85,
+        "itunes" => 0.9,
+        "hashnode" => 0.9,
+        "frankfurter" => 0.85,
+        "openmeteo" => 0.85,
+        "usgs" => 0.85,
+        // News.
+        "gdelt" => 0.95,
+        "hackernews" => 1.0,
+        "lobsters" => 0.95,
+        "devto" => 0.9,
+        "reddit" => 0.9,
         _ => 1.0,
     }
 }
@@ -763,7 +874,8 @@ mod tests {
             title: title.into(),
             snippet: "s".into(),
             engine: Some(engine.into()),
-        }
+            published_at: None,
+}
     }
 
     fn fanout(stubs: Vec<(&str, Stub)>) -> Fanout {
