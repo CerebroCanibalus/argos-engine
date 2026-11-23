@@ -129,43 +129,22 @@ fn extract_text(html: &str) -> (String, String) {
         }
     }
 
-    // Deduplicate consecutive identical lines and drop tiny/noise lines.
+    // Preserve the real content: only drop empty lines and collapse
+    // whitespace inside each line. No heuristic filtering of "short" or
+    // "link-heavy" lines, because that deletes legitimate content.
     let mut lines: Vec<String> = Vec::new();
-    let mut prev = String::new();
     for raw_line in best_text.lines() {
         let line = raw_line.split_whitespace().collect::<Vec<_>>().join(" ");
         if line.is_empty() {
             continue;
         }
-        // Skip lines that are just punctuation or too short (likely nav).
-        let word_count = line.split_whitespace().count();
-        if word_count < 3 && line.len() < 40 {
-            continue;
-        }
-        // Skip lines that are almost entirely links (high slash/dot density).
-        if line.matches("http").count() > 3 {
-            continue;
-        }
-        if line == prev {
-            continue;
-        }
-        prev = line.clone();
         lines.push(line);
     }
 
-    let mut out = lines.join("
-");
+    let mut out = lines.join("\n");
     // Collapse multiple blank lines.
-    while out.contains("
-
-
-") {
-        out = out.replace("
-
-
-", "
-
-");
+    while out.contains("\n\n\n") {
+        out = out.replace("\n\n\n", "\n\n");
     }
     let collapsed = out.trim().to_string();
     (title, collapsed)
