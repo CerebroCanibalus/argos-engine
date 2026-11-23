@@ -5,7 +5,7 @@ use crate::error::ArgosError;
 
 const DEFAULT_EXTRACT_CHARS: usize = 4000;
 const MAX_EXTRACT_CHARS: usize = 12000;
-const EXTRACT_CACHE_TTL_SECS: u64 = 600;
+const EXTRACT_CACHE_TTL_SECS: u64 = 300;
 
 #[derive(serde::Serialize, Clone, Debug)]
 pub struct ExtractOutcome {
@@ -64,26 +64,110 @@ fn extract_text(html: &str) -> (String, String) {
 
     let document = Html::parse_document(html);
 
-    // Title
+    // Title: prefer og:title, then <title>.
     let title = document
-        .select(&Selector::parse("title").unwrap())
+        .select(&Selector::parse("meta[property='og:title']").unwrap())
         .next()
-        .map(|e| e.text().collect::<String>().trim().to_string())
+        .and_then(|e| e.value().attr("content"))
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            document
+                .select(&Selector::parse("title").unwrap())
+                .next()
+                .map(|e| e.text().collect::<String>().trim().to_string())
+        })
         .unwrap_or_default();
 
-    // Remove noise elements by selecting body and walking text nodes,
-    // skipping script/style/nav/header/footer/aside.
-    let skip_tags = ["script", "style", "nav", "header", "footer", "aside", "noscript", "iframe"];
-    let mut out = String::new();
-    if let Some(body) = document.select(&Selector::parse("body").unwrap()).next() {
-        collect_text(body, &skip_tags, &mut out);
-    } else {
-        collect_text(document.root_element(), &skip_tags, &mut out);
+    // Noise elements to skip entirely.
+    let skip_tags = [
+        "script", "style", "nav", "header", "footer", "aside", "noscript", "iframe", "form",
+        "button", "svg", "canvas",
+    ];
+
+    // Pick the best content container: prefer semantic article/main, then common
+    // content class/id selectors, finally body.
+    let container_selectors = [
+        "article",
+        "main",
+        "[role='main']",
+        ".post-content",
+        ".entry-content",
+        ".article-content",
+        ".article-body",
+        "#content",
+        ".content",
+        ".post",
+        "body",
+    ];
+
+    let mut best_text = String::new();
+    let mut best_score: usize = 0;
+    for sel in container_selectors {
+        if let Ok(selector) = Selector::parse(sel) {
+            for el in document.select(&selector) {
+                let mut buf = String::new();
+                collect_text(el, &skip_tags, &mut buf);
+                // Score: number of word-like tokens; penalize link-heavy blocks.
+                let words = buf.split_whitespace().count();
+                let links = el.select(&Selector::parse("a").unwrap()).count();
+                let score = words.saturating_sub(links * 3);
+                if score > best_score && words >= 30 {
+                    best_score = score;
+                    best_text = buf;
+                }
+            }
+        }
     }
 
-    // Collapse whitespace
-    let collapsed: String = out.split_whitespace().collect::<Vec<_>>().join(" ");
-    // Re-introduce paragraph breaks: replace double spaces already collapsed; keep simple.
+    if best_text.trim().is_empty() {
+        // Fallback: whole body.
+        if let Some(body) = document.select(&Selector::parse("body").unwrap()).next() {
+            collect_text(body, &skip_tags, &mut best_text);
+        } else {
+            collect_text(document.root_element(), &skip_tags, &mut best_text);
+        }
+    }
+
+    // Deduplicate consecutive identical lines and drop tiny/noise lines.
+    let mut lines: Vec<String> = Vec::new();
+    let mut prev = String::new();
+    for raw_line in best_text.lines() {
+        let line = raw_line.split_whitespace().collect::<Vec<_>>().join(" ");
+        if line.is_empty() {
+            continue;
+        }
+        // Skip lines that are just punctuation or too short (likely nav).
+        let word_count = line.split_whitespace().count();
+        if word_count < 3 && line.len() < 40 {
+            continue;
+        }
+        // Skip lines that are almost entirely links (high slash/dot density).
+        if line.matches("http").count() > 3 {
+            continue;
+        }
+        if line == prev {
+            continue;
+        }
+        prev = line.clone();
+        lines.push(line);
+    }
+
+    let mut out = lines.join("
+");
+    // Collapse multiple blank lines.
+    while out.contains("
+
+
+") {
+        out = out.replace("
+
+
+", "
+
+");
+    }
+    let collapsed = out.trim().to_string();
     (title, collapsed)
 }
 
