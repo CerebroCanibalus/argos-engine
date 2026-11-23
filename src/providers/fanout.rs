@@ -15,22 +15,38 @@ use crate::config::Config;
 use crate::error::ArgosError;
 use crate::providers::SearchProvider;
 use crate::providers::arxiv::ArxivProvider;
+use crate::providers::base::BaseProvider;
 use crate::providers::bing::BingProvider;
 use crate::providers::brave::BraveProvider;
 use crate::providers::crates::CratesProvider;
 use crate::providers::crossref::CrossrefProvider;
+use crate::providers::dblp::DblpProvider;
+use crate::providers::devto::DevtoProvider;
 use crate::providers::doaj::DoajProvider;
 use crate::providers::duckduckgo::DuckDuckGoProvider;
 use crate::providers::europepmc::EuropePmcProvider;
 use crate::providers::gdelt::GdeltProvider;
 use crate::providers::github::GitHubProvider;
+use crate::providers::hackernews::HackerNewsProvider;
+use crate::providers::hex::HexProvider;
+use crate::providers::lobsters::LobstersProvider;
+use crate::providers::maven::MavenProvider;
 use crate::providers::npm::NpmProvider;
+use crate::providers::nuget::NugetProvider;
+use crate::providers::openaire::OpenaireProvider;
 use crate::providers::openalex::OpenAlexProvider;
+use crate::providers::openlibrary::OpenLibraryProvider;
+use crate::providers::orcid::OrcidProvider;
 use crate::providers::packagist::PackagistProvider;
 use crate::providers::provider_trusts_relevance;
 use crate::providers::pubmed::PubmedProvider;
+use crate::providers::reddit::RedditProvider;
+use crate::providers::rubygems::RubygemsProvider;
 use crate::providers::semantic_scholar::SemanticScholarProvider;
+use crate::providers::stackoverflow::StackOverflowProvider;
+use crate::providers::wikidata::WikidataProvider;
 use crate::providers::wikimedia::WikimediaProvider;
+use crate::providers::zenodo::ZenodoProvider;
 use crate::quality;
 use crate::types::{ProviderEntry, ProviderHealth, ProviderStatus, SearchOutcome, SearchResult};
 
@@ -114,6 +130,59 @@ impl Fanout {
                 )),
                 "gdelt" => {
                     providers.push((name.clone(), Box::new(GdeltProvider::new(config.clone()))))
+                }
+                "base" => {
+                    providers.push((name.clone(), Box::new(BaseProvider::new(config.clone()))))
+                }
+                "dblp" => {
+                    providers.push((name.clone(), Box::new(DblpProvider::new(config.clone()))))
+                }
+                "openaire" => providers.push((
+                    name.clone(),
+                    Box::new(OpenaireProvider::new(config.clone())),
+                )),
+                "orcid" => {
+                    providers.push((name.clone(), Box::new(OrcidProvider::new(config.clone()))))
+                }
+                "zenodo" => {
+                    providers.push((name.clone(), Box::new(ZenodoProvider::new(config.clone()))))
+                }
+                "maven" => {
+                    providers.push((name.clone(), Box::new(MavenProvider::new(config.clone()))))
+                }
+                "nuget" => {
+                    providers.push((name.clone(), Box::new(NugetProvider::new(config.clone()))))
+                }
+                "rubygems" => providers.push((
+                    name.clone(),
+                    Box::new(RubygemsProvider::new(config.clone())),
+                )),
+                "hex" => providers.push((name.clone(), Box::new(HexProvider::new(config.clone())))),
+                "stackoverflow" => providers.push((
+                    name.clone(),
+                    Box::new(StackOverflowProvider::new(config.clone())),
+                )),
+                "wikidata" => providers.push((
+                    name.clone(),
+                    Box::new(WikidataProvider::new(config.clone())),
+                )),
+                "openlibrary" => providers.push((
+                    name.clone(),
+                    Box::new(OpenLibraryProvider::new(config.clone())),
+                )),
+                "hackernews" => providers.push((
+                    name.clone(),
+                    Box::new(HackerNewsProvider::new(config.clone())),
+                )),
+                "lobsters" => providers.push((
+                    name.clone(),
+                    Box::new(LobstersProvider::new(config.clone())),
+                )),
+                "devto" => {
+                    providers.push((name.clone(), Box::new(DevtoProvider::new(config.clone()))))
+                }
+                "reddit" => {
+                    providers.push((name.clone(), Box::new(RedditProvider::new(config.clone()))))
                 }
                 _ => {}
             }

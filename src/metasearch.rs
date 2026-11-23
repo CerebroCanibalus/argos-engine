@@ -764,6 +764,134 @@ fn builtin_manifest(id: &str) -> Option<ProviderManifest> {
             70,
             vec![ProviderCategory::News],
         ),
+        "dblp" => (
+            ProviderKind::Api,
+            ProviderPolicy::PublicApi,
+            CostClass::Free,
+            "dblp",
+            78,
+            vec![ProviderCategory::Academic],
+        ),
+        "base" => (
+            ProviderKind::Api,
+            ProviderPolicy::PublicApi,
+            CostClass::Free,
+            "base",
+            72,
+            vec![ProviderCategory::Academic],
+        ),
+        "openaire" => (
+            ProviderKind::Api,
+            ProviderPolicy::PublicApi,
+            CostClass::Free,
+            "openaire",
+            70,
+            vec![ProviderCategory::Academic],
+        ),
+        "orcid" => (
+            ProviderKind::Api,
+            ProviderPolicy::Vertical,
+            CostClass::Free,
+            "orcid",
+            68,
+            vec![ProviderCategory::Academic],
+        ),
+        "zenodo" => (
+            ProviderKind::Api,
+            ProviderPolicy::PublicApi,
+            CostClass::Free,
+            "zenodo",
+            66,
+            vec![ProviderCategory::Academic],
+        ),
+        "maven" => (
+            ProviderKind::Api,
+            ProviderPolicy::Vertical,
+            CostClass::Free,
+            "maven",
+            82,
+            vec![ProviderCategory::Code],
+        ),
+        "nuget" => (
+            ProviderKind::Api,
+            ProviderPolicy::Vertical,
+            CostClass::Free,
+            "nuget",
+            80,
+            vec![ProviderCategory::Code],
+        ),
+        "rubygems" => (
+            ProviderKind::Api,
+            ProviderPolicy::Vertical,
+            CostClass::Free,
+            "rubygems",
+            78,
+            vec![ProviderCategory::Code],
+        ),
+        "hex" => (
+            ProviderKind::Api,
+            ProviderPolicy::Vertical,
+            CostClass::Free,
+            "hex",
+            76,
+            vec![ProviderCategory::Code],
+        ),
+        "stackoverflow" => (
+            ProviderKind::Api,
+            ProviderPolicy::Vertical,
+            CostClass::Free,
+            "stackoverflow",
+            74,
+            vec![ProviderCategory::Code],
+        ),
+        "wikidata" => (
+            ProviderKind::Api,
+            ProviderPolicy::Vertical,
+            CostClass::Free,
+            "wikidata",
+            85,
+            vec![ProviderCategory::Knowledge],
+        ),
+        "openlibrary" => (
+            ProviderKind::Api,
+            ProviderPolicy::PublicApi,
+            CostClass::Free,
+            "openlibrary",
+            80,
+            vec![ProviderCategory::Knowledge],
+        ),
+        "hackernews" => (
+            ProviderKind::Api,
+            ProviderPolicy::Vertical,
+            CostClass::Free,
+            "hackernews",
+            85,
+            vec![ProviderCategory::News],
+        ),
+        "lobsters" => (
+            ProviderKind::Api,
+            ProviderPolicy::Vertical,
+            CostClass::Free,
+            "lobsters",
+            80,
+            vec![ProviderCategory::News],
+        ),
+        "devto" => (
+            ProviderKind::Api,
+            ProviderPolicy::Vertical,
+            CostClass::Free,
+            "devto",
+            75,
+            vec![ProviderCategory::News],
+        ),
+        "reddit" => (
+            ProviderKind::Api,
+            ProviderPolicy::Vertical,
+            CostClass::Free,
+            "reddit",
+            70,
+            vec![ProviderCategory::News],
+        ),
         _ => return None,
     };
     Some(ProviderManifest {
@@ -823,16 +951,40 @@ mod tests {
             vec![
                 "openalex",
                 "crossref",
+                "dblp",
                 "arxiv",
+                "base",
                 "europe_pmc",
+                "openaire",
+                "orcid",
+                "zenodo",
                 "doaj",
                 "pubmed",
                 "semantic_scholar"
             ]
         );
-        assert_eq!(code.members(), vec!["github", "crates", "npm", "packagist"]);
-        assert_eq!(news.members(), vec!["gdelt"]);
-        assert_eq!(knowledge.members(), vec!["wikimedia"]);
+        assert_eq!(
+            code.members(),
+            vec![
+                "github",
+                "crates",
+                "maven",
+                "npm",
+                "nuget",
+                "rubygems",
+                "hex",
+                "stackoverflow",
+                "packagist"
+            ]
+        );
+        assert_eq!(
+            news.members(),
+            vec!["hackernews", "lobsters", "devto", "gdelt", "reddit"]
+        );
+        assert_eq!(
+            knowledge.members(),
+            vec!["wikidata", "wikimedia", "openlibrary"]
+        );
 
         for other in [academic.members(), code.members(), news.members()] {
             for id in &other {

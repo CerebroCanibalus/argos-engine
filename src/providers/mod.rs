@@ -10,22 +10,38 @@
 //! can fail over.
 
 pub mod arxiv;
+pub mod base;
 pub mod bing;
 pub mod brave;
 pub mod crates;
 pub mod crossref;
+pub mod dblp;
+pub mod devto;
 pub mod doaj;
 pub mod duckduckgo;
 pub mod europepmc;
 pub mod fanout;
 pub mod gdelt;
 pub mod github;
+pub mod hackernews;
+pub mod hex;
+pub mod lobsters;
+pub mod maven;
 pub mod npm;
+pub mod nuget;
+pub mod openaire;
 pub mod openalex;
+pub mod openlibrary;
+pub mod orcid;
 pub mod packagist;
 pub mod pubmed;
+pub mod reddit;
+pub mod rubygems;
 pub mod semantic_scholar;
+pub mod stackoverflow;
+pub mod wikidata;
 pub mod wikimedia;
+pub mod zenodo;
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -303,6 +319,38 @@ mod tests {
             "pubmed",
             "doaj",
             "semantic_scholar",
+            "base",
+            "dblp",
+            "openaire",
+            "orcid",
+            "zenodo",
+            "maven",
+            "nuget",
+            "rubygems",
+            "hex",
+            "stackoverflow",
+            "wikidata",
+            "openlibrary",
+            "hackernews",
+            "lobsters",
+            "devto",
+            "reddit",
+            "base",
+            "dblp",
+            "openaire",
+            "orcid",
+            "zenodo",
+            "maven",
+            "nuget",
+            "rubygems",
+            "hex",
+            "stackoverflow",
+            "wikidata",
+            "openlibrary",
+            "hackernews",
+            "lobsters",
+            "devto",
+            "reddit",
         ] {
             assert!(
                 provider_trusts_relevance(api),
