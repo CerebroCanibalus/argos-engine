@@ -64,6 +64,17 @@ use crate::providers::semantic_scholar::SemanticScholarProvider;
 use crate::providers::stackoverflow::StackOverflowProvider;
 use crate::providers::wikidata::WikidataProvider;
 use crate::providers::wikimedia::WikimediaProvider;
+use crate::providers::wikisource::WikisourceProvider;
+use crate::providers::wikimediacommons::WikimediaCommonsProvider;
+use crate::providers::usgs::UsgsProvider;
+use crate::providers::stackexchange::StackExchangeProvider;
+use crate::providers::repology::RepologyProvider;
+use crate::providers::openmeteo::OpenMeteoProvider;
+use crate::providers::itunes::ItunesProvider;
+use crate::providers::hashnode::HashnodeProvider;
+use crate::providers::frankfurter::FrankfurterProvider;
+use crate::providers::dbpedia::DbpediaProvider;
+use crate::providers::conda::CondaProvider;
 use crate::providers::wordpress::WordPressProvider;
 use crate::providers::worldbank::WorldBankProvider;
 use crate::providers::zenodo::ZenodoProvider;
@@ -151,6 +162,64 @@ impl Fanout {
                 "gdelt" => {
                     providers.push((name.clone(), Box::new(GdeltProvider::new(config.clone()))))
                 }
+                "frankfurter" => providers.push((
+                    name.clone(),
+                    Box::new(FrankfurterProvider::new(config.clone())),
+                )),
+                "openmeteo" => providers.push((
+                    name.clone(),
+                    Box::new(OpenMeteoProvider::new(config.clone())),
+                )),
+                "usgs" => {
+                    providers.push((name.clone(), Box::new(UsgsProvider::new(config.clone()))))
+                }
+                "itunes" => providers.push((
+                    name.clone(),
+                    Box::new(ItunesProvider::new(config.clone())),
+                )),
+                "dbpedia" => providers.push((
+                    name.clone(),
+                    Box::new(DbpediaProvider::new(config.clone())),
+                )),
+                "wikisource" => providers.push((
+                    name.clone(),
+                    Box::new(WikisourceProvider::new(config.clone())),
+                )),
+                "wikimediacommons" => providers.push((
+                    name.clone(),
+                    Box::new(WikimediaCommonsProvider::new(config.clone())),
+                )),
+                "hashnode" => providers.push((
+                    name.clone(),
+                    Box::new(HashnodeProvider::new(config.clone())),
+                )),
+                "conda" => {
+                    providers.push((name.clone(), Box::new(CondaProvider::new(config.clone()))))
+                }
+                "repology" => providers.push((
+                    name.clone(),
+                    Box::new(RepologyProvider::new(config.clone())),
+                )),
+                "serverfault" => providers.push((
+                    name.clone(),
+                    Box::new(StackExchangeProvider::new(config.clone(), "serverfault")),
+                )),
+                "superuser" => providers.push((
+                    name.clone(),
+                    Box::new(StackExchangeProvider::new(config.clone(), "superuser")),
+                )),
+                "askubuntu" => providers.push((
+                    name.clone(),
+                    Box::new(StackExchangeProvider::new(config.clone(), "askubuntu")),
+                )),
+                "mathoverflow" => providers.push((
+                    name.clone(),
+                    Box::new(StackExchangeProvider::new(config.clone(), "mathoverflow")),
+                )),
+                "physics" => providers.push((
+                    name.clone(),
+                    Box::new(StackExchangeProvider::new(config.clone(), "physics.stackexchange")),
+                )),
                 "internetarchive" => providers.push((
                     name.clone(),
                     Box::new(InternetArchiveProvider::new(config.clone())),

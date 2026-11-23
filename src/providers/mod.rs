@@ -10,6 +10,17 @@
 //! can fail over.
 
 pub mod arxiv;
+pub mod wikisource;
+pub mod wikimediacommons;
+pub mod usgs;
+pub mod stackexchange;
+pub mod repology;
+pub mod openmeteo;
+pub mod itunes;
+pub mod hashnode;
+pub mod frankfurter;
+pub mod dbpedia;
+pub mod conda;
 pub mod aur;
 pub mod base;
 pub mod bing;
@@ -375,6 +386,22 @@ mod tests {
             "clinicaltrials",
             "worldbank",
             "plos",
+            "frankfurter",
+            "openmeteo",
+            "usgs",
+            "itunes",
+            "dbpedia",
+            "wikisource",
+            "wikimediacommons",
+            "hashnode",
+            "conda",
+            "repology",
+            "stackexchange",
+            "serverfault",
+            "superuser",
+            "askubuntu",
+            "mathoverflow",
+            "physics",
             "base",
             "dblp",
             "openaire",
