@@ -87,5 +87,9 @@ mod tests {
             names.iter().any(|n| n == "status"),
             "status tool missing: {names:?}"
         );
+        assert!(
+            names.iter().any(|n| n == "extract"),
+            "extract tool missing: {names:?}"
+        );
     }
 }

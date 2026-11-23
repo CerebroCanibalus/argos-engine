@@ -65,6 +65,7 @@ Or any MCP client (Claude Desktop, Cursor, Inspector…): command = the `argos-e
 |---|---|---|
 | `search` | `query`, `limit?` (1-50, default 10), `page?`, `profile?` (`general`, `academic`, `code`, `news`, `knowledge`), `domains?` (`[String]`, e.g. `["kvrforums.com", "reddit.com"]`) | `{ results: [{ url, source, title, snippet, engine }], providers: [{name, kind: "ok"|"empty"|"filtered"|"rate_limited"|"unreachable", ...}], warnings: [...] }` |
 | `status` | `profile?` (same values) | `{ name, version, profile, providers: [{name, reachable}] }` |
+| `extract` | `url`, `max_chars?` (100-12000, default 4000) | `{ url, title, text, truncated, cached }` |
 
 Both tools declare all four MCP annotations, so a client can tell before invoking
 that they are read-only, non-destructive, idempotent and open-world:
