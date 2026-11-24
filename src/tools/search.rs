@@ -21,6 +21,7 @@ pub async fn search(
     domains: Option<Vec<String>>,
     profile: Option<String>,
     freshness: Option<String>,
+    strict: Option<bool>,
 ) -> Result<SearchOutcome, ToolError> {
     let relevance_query = query.trim().to_string();
     // Query rewriting: normalize + synonym expansion for upstream providers.
@@ -52,6 +53,8 @@ pub async fn search(
         }
     };
 
+    let strict = strict.unwrap_or(true);
+
     let domains = quality::normalize_domains(domains.as_deref())?;
     let provider_query = quality::scoped_query(&rewritten_query, &domains);
 
@@ -66,6 +69,7 @@ pub async fn search(
             clamp_limit(limit),
             clamp_page(page),
             &domains,
+            strict,
         )
         .await?;
 

@@ -82,26 +82,51 @@ pub fn matches_domains(url: &str, domains: &[String]) -> bool {
     })
 }
 
-/// Conservative lexical relevance gate for a normalized result.
+/// Partial relevance score (0.0-1.0) for a result against a query.
 ///
-/// A result is rejected only when it contains none of the query's meaningful
-/// terms. Generic words such as "free" and "tutorial" do not count on their
-/// own. Multi-term queries require at least two matches when possible, which
-/// filters obvious entity drift such as a Rust video game for an async Tokio
-/// query.
-pub fn is_relevant(query: &str, result: &SearchResult) -> bool {
+/// Combines exact term matches with synonym alternates. Title matches weigh
+/// more than snippet/url matches. Returns 0.0 when nothing matches.
+pub fn relevance_score(query: &str, result: &SearchResult) -> f64 {
     let terms = meaningful_terms(query);
     if terms.is_empty() {
-        return true;
+        return 1.0;
     }
-    let haystack =
-        format!("{} {} {}", result.title, result.snippet, result.url).to_ascii_lowercase();
-    let matches = terms
-        .iter()
-        .filter(|term| haystack.contains(term.as_str()))
-        .count();
-    let minimum = if terms.len() >= 3 { 2 } else { 1 };
-    matches >= minimum
+    let title = result.title.to_ascii_lowercase();
+    let snippet = result.snippet.to_ascii_lowercase();
+    let url = result.url.to_ascii_lowercase();
+
+    let mut total = 0.0;
+    for term in &terms {
+        let alternates = crate::query_rewrite::synonym_alternates(term);
+        // Exact term first.
+        if title.contains(term.as_str()) {
+            total += 0.6;
+        } else if snippet.contains(term.as_str()) || url.contains(term.as_str()) {
+            total += 0.3;
+        } else {
+            // Synonym alternates (lower weight).
+            for alt in &alternates {
+                let alt = alt.to_ascii_lowercase();
+                if title.contains(&alt) {
+                    total += 0.4;
+                    break;
+                } else if snippet.contains(&alt) || url.contains(&alt) {
+                    total += 0.2;
+                    break;
+                }
+            }
+        }
+    }
+    (total / terms.len() as f64).min(1.0)
+}
+
+/// Conservative lexical relevance gate for a normalized result.
+///
+/// A result is rejected only when it has zero relevance (no term or synonym
+/// matched). This is far more permissive than the old binary gate while still
+/// filtering obvious entity drift.
+pub fn is_relevant(query: &str, result: &SearchResult) -> bool {
+    relevance_score(query, result) > 0.0
 }
 
 fn host_for(url: &str) -> Option<String> {

@@ -22,6 +22,14 @@ fn synonyms() -> HashMap<&'static str, &'static [&'static str]> {
     m
 }
 
+/// Return synonym alternates for a single term (empty if none).
+pub fn synonym_alternates(term: &str) -> Vec<&'static str> {
+    synonyms()
+        .get(term.to_ascii_lowercase().as_str())
+        .map(|alts| alts.to_vec())
+        .unwrap_or_default()
+}
+
 /// Normalize whitespace and casing-insensitive cleanup; preserve original case
 /// for providers that are case-sensitive.
 pub fn normalize(query: &str) -> String {

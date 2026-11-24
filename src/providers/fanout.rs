@@ -381,12 +381,14 @@ impl Fanout {
         limit: usize,
         page: usize,
         domains: &[String],
+        strict: bool,
     ) -> Result<SearchOutcome, ArgosError> {
-        self.run_filtered(None, provider_query, relevance_query, limit, page, domains)
+        self.run_filtered(None, provider_query, relevance_query, limit, page, domains, strict)
             .await
     }
 
     /// Fan out only to the IDs selected by the native metasearch router.
+#[allow(clippy::too_many_arguments)]
     pub async fn run_selected(
         &self,
         selected: &[String],
@@ -395,6 +397,7 @@ impl Fanout {
         limit: usize,
         page: usize,
         domains: &[String],
+        strict: bool,
     ) -> Result<SearchOutcome, ArgosError> {
         let selected_names: HashSet<String> = selected.iter().cloned().collect();
         self.run_filtered(
@@ -404,10 +407,12 @@ impl Fanout {
             limit,
             page,
             domains,
+            strict,
         )
         .await
     }
 
+#[allow(clippy::too_many_arguments)]
     async fn run_filtered(
         &self,
         selected_names: Option<&HashSet<String>>,
@@ -416,6 +421,7 @@ impl Fanout {
         limit: usize,
         page: usize,
         domains: &[String],
+        strict: bool,
     ) -> Result<SearchOutcome, ArgosError> {
         let active_providers: Vec<&(String, Box<dyn SearchProvider>)> = self
             .providers
@@ -483,6 +489,7 @@ impl Fanout {
         // because it returned HTTP 200.
         let mut total_returned = 0;
         let mut total_rejected = 0;
+        let mut rejected_results: Vec<(f64, SearchResult)> = Vec::new();
         let per_provider_views: Vec<ProviderView<'_>> = per_provider
             .iter()
             .map(|(name, outcome)| match outcome {
@@ -501,12 +508,15 @@ impl Fanout {
                         let in_scope = quality::matches_domains(&result.url, domains);
                         // Curated APIs are already relevance-ranked; only the
                         // HTML engines need the lexical drift guard.
-                        let relevant = provider_trusts_relevance(name)
+                        let relevant = !strict
+                            || provider_trusts_relevance(name)
                             || quality::is_relevant(relevance_query, result);
                         if in_scope && relevant {
                             accepted.push(result.clone());
                         } else {
                             rejected += 1;
+                            let score = quality::relevance_score(relevance_query, result);
+                            rejected_results.push((score, result.clone()));
                         }
                     }
                     total_returned += returned;
@@ -567,6 +577,32 @@ impl Fanout {
         }
 
         if merged.is_empty() {
+            // Degraded fallback: if providers returned results but all were
+            // filtered, return the best-effort matches instead of a hard error.
+            if !rejected_results.is_empty() && rejected_results.iter().any(|(s, _)| *s > 0.0) {
+                rejected_results.sort_by(|a, b| b.0.total_cmp(&a.0));
+                let mut best: Vec<SearchResult> = rejected_results
+                    .into_iter()
+                    .filter(|(s, _)| *s > 0.0)
+                    .take(limit)
+                    .map(|(_, r)| r)
+                    .collect();
+                // Dedup by canonical URL.
+                let mut seen = HashSet::new();
+                best.retain(|r| seen.insert(normalize_url(&r.url)));
+                if !best.is_empty() {
+                    warnings.push(format!(
+                        "best-effort: all {} result(s) failed the strict quality gate; returning top {} by relevance score",
+                        total_rejected,
+                        best.len()
+                    ));
+                    return Ok(SearchOutcome {
+                        results: best,
+                        providers,
+                        warnings,
+                    });
+                }
+            }
             return Err(ArgosError::NoUsableResults {
                 returned: total_returned,
                 rejected: total_rejected,
@@ -920,7 +956,7 @@ mod tests {
                 },
             ),
         ]);
-        let outcome = fanout.run("q", "q", 10, 1, &[]).await.expect("ok");
+        let outcome = fanout.run("q", "q", 10, 1, &[], true).await.expect("ok");
         // Dedup normalizes scheme/www/trailing-slash, so the www-variant dup dies:
         assert_eq!(outcome.results.len(), 3, "normalized dup must be dropped");
         assert_eq!(
@@ -964,7 +1000,7 @@ mod tests {
                 },
             ),
         ]);
-        let outcome = fanout.run("q", "q", 2, 1, &[]).await.expect("ok");
+        let outcome = fanout.run("q", "q", 2, 1, &[], true).await.expect("ok");
         assert_eq!(outcome.results.len(), 2);
     }
 
@@ -994,7 +1030,7 @@ mod tests {
             ),
         ]);
         let error = fanout
-            .run("q", "q", 5, 1, &[])
+            .run("q", "q", 5, 1, &[], true)
             .await
             .expect_err("must fail");
         assert!(
@@ -1031,7 +1067,7 @@ mod tests {
             ),
         ]);
         let error = fanout
-            .run("q", "q", 5, 1, &[])
+            .run("q", "q", 5, 1, &[], true)
             .await
             .expect_err("must fail");
         match error {
@@ -1067,7 +1103,7 @@ mod tests {
                 },
             ),
         ]);
-        let outcome = fanout.run("q", "q", 10, 1, &[]).await.expect("ok");
+        let outcome = fanout.run("q", "q", 10, 1, &[], true).await.expect("ok");
         assert_eq!(outcome.results.len(), 1);
         assert!(matches!(
             status_of(&outcome, "ddg"),
@@ -1103,6 +1139,7 @@ mod tests {
                 10,
                 1,
                 &["reddit.com".into()],
+                true,
             )
             .await
             .expect("usable result");
@@ -1139,6 +1176,7 @@ mod tests {
                 10,
                 1,
                 &[],
+                true,
             )
             .await
             .expect_err("entity drift must not be returned");
@@ -1164,7 +1202,7 @@ mod tests {
             ),
         ]);
         let error = fanout
-            .run("q", "q", 10, 1, &[])
+            .run("q", "q", 10, 1, &[], true)
             .await
             .expect_err("empty upstream set must be typed");
         assert!(matches!(

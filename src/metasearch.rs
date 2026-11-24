@@ -445,6 +445,7 @@ impl MetasearchRouter {
         limit: usize,
         page: usize,
         domains: &[String],
+        strict: bool,
     ) -> Result<SearchOutcome, ArgosError> {
         let cache_key = CacheKey {
             profile: self.registry.profile_id().to_string(),
@@ -485,6 +486,7 @@ impl MetasearchRouter {
                     limit,
                     page,
                     domains,
+                    strict,
                 )
                 .await
             {
